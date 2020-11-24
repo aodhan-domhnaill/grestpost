@@ -5,7 +5,6 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo"
-	"github.com/labstack/gommon/log"
 )
 
 type rowsInterface interface {
@@ -42,35 +41,55 @@ func (api *API) GetServer() *echo.Echo {
 	return e
 }
 
-func (api *API) getDatabases(c echo.Context) error {
-	rows, err := api.sql.NamedQuery(
-		"SELECT datname FROM pg_database WHERE datistemplate = false;",
-		nil,
-	)
+func (api *API) selectStringArray(query string, params interface{}) ([]string, error) {
+	rows, err := api.sql.NamedQuery(query, params)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	databases := make([]string, 0)
+	array := make([]string, 0)
 	for rows.Next() {
-		var database string
-		if err := rows.Scan(&database); err != nil {
-			return err
+		var ele string
+		if err := rows.Scan(&ele); err != nil {
+			return nil, err
 		}
-		log.Error("Got", rows, &database)
-		databases = append(databases, database)
+		array = append(array, ele)
 	}
+	return array, nil
+}
+
+func (api *API) getDatabases(c echo.Context) error {
+	databases, err := api.selectStringArray(
+		"SELECT datname FROM pg_database WHERE datistemplate = false;", nil,
+	)
 	c.JSON(http.StatusOK, databases)
 
-	return nil
+	return err
 }
 
 func (api *API) getSchemas(c echo.Context) error {
-	return nil
+	databases, err := api.selectStringArray(
+		"SELECT table_schema FROM information_schema.tables",
+		map[string]interface{}{
+			"database": c.Param("database"),
+		},
+	)
+	c.JSON(http.StatusOK, databases)
+
+	return err
 }
 
 func (api *API) getTables(c echo.Context) error {
-	return nil
+	databases, err := api.selectStringArray(
+		"SELECT table_name FROM information_schema.tables WHERE table_schema = :schema",
+		map[string]interface{}{
+			"database": c.Param("database"),
+			"schema":   c.Param("schema"),
+		},
+	)
+	c.JSON(http.StatusOK, databases)
+
+	return err
 }
 
 func (api *API) getSelect(c echo.Context) error {

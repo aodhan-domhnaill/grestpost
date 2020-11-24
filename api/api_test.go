@@ -15,6 +15,8 @@ import (
 
 type MockSQL struct {
 	databases []string
+	schemas   []string
+	tables    []string
 }
 
 type MockRows struct {
@@ -36,6 +38,16 @@ func (m MockSQL) NamedQuery(query string, arg interface{}) (rowsInterface, error
 		return rowsInterface(&MockRows{
 			index: 0,
 			value: stringToInterface(m.databases),
+		}), nil
+	case "SELECT table_schema FROM information_schema.tables":
+		return rowsInterface(&MockRows{
+			index: 0,
+			value: stringToInterface(m.schemas),
+		}), nil
+	case "SELECT table_name FROM information_schema.tables WHERE table_schema = :schema":
+		return rowsInterface(&MockRows{
+			index: 0,
+			value: stringToInterface(m.tables),
 		}), nil
 	default:
 		return nil, errors.New("Don't understand query")
@@ -66,12 +78,16 @@ func NewAPI() *API {
 		return &API{
 			MockSQL{
 				databases: []string{"testdb"},
+				schemas:   []string{"testschema"},
+				tables:    []string{"testtable"},
 			},
 		}
 	}
 	return &API{
 		MockSQL{
 			databases: []string{"testdb"},
+			schemas:   []string{"testschema"},
+			tables:    []string{"testtable"},
 		},
 	}
 }
@@ -88,6 +104,8 @@ func TestGets(t *testing.T) {
 
 	tests := []GetTest{
 		{httptest.NewRequest(http.MethodGet, "/", nil), `["testdb"]`, api.getDatabases},
+		{httptest.NewRequest(http.MethodGet, "/testdb", nil), `["testschema"]`, api.getSchemas},
+		{httptest.NewRequest(http.MethodGet, "/testdb/testschema", nil), `["testtable"]`, api.getTables},
 	}
 
 	for _, test := range tests {
