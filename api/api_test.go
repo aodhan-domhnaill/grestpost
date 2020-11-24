@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -97,15 +96,14 @@ func TestGets(t *testing.T) {
 	server := api.GetServer()
 
 	type GetTest struct {
-		req  *http.Request
-		res  string
-		exec echo.HandlerFunc
+		req *http.Request
+		res string
 	}
 
 	tests := []GetTest{
-		{httptest.NewRequest(http.MethodGet, "/", nil), `["testdb"]`, api.getDatabases},
-		{httptest.NewRequest(http.MethodGet, "/testdb", nil), `["testschema"]`, api.getSchemas},
-		{httptest.NewRequest(http.MethodGet, "/testdb/testschema", nil), `["testtable"]`, api.getTables},
+		{httptest.NewRequest(http.MethodGet, "/", nil), `["testdb"]`},
+		{httptest.NewRequest(http.MethodGet, "/testdb", nil), `["testschema"]`},
+		{httptest.NewRequest(http.MethodGet, "/testdb/testschema", nil), `["testtable"]`},
 	}
 
 	for _, test := range tests {
@@ -113,11 +111,9 @@ func TestGets(t *testing.T) {
 			fmt.Sprintf("%s %s", test.req.Method, test.req.RequestURI),
 			func(t *testing.T) {
 				rec := httptest.NewRecorder()
-				c := server.NewContext(test.req, rec)
-				if assert.NoError(t, test.exec(c)) {
-					assert.Equal(t, http.StatusOK, rec.Code)
-					assert.Equal(t, test.res, strings.TrimSpace(rec.Body.String()))
-				}
+				server.ServeHTTP(rec, test.req)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, test.res, strings.TrimSpace(rec.Body.String()))
 			},
 		)
 	}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/jmoiron/sqlx"
@@ -33,65 +34,63 @@ type API struct {
 func (api *API) GetServer() *echo.Echo {
 	e := echo.New()
 
-	e.GET("/", api.getDatabases)
-	e.GET("/:database", api.getSchemas)
-	e.GET("/:database/:schema", api.getTables)
-	e.GET("/:database/:schema/:table", api.getSelect)
+	e.GET("/", api.query)
+	e.GET("/:database", api.query)
+	e.GET("/:database/:schema", api.query)
+	e.GET("/:database/:schema/:table", api.query)
 
 	return e
 }
 
-func (api *API) selectStringArray(query string, params interface{}) ([]string, error) {
-	rows, err := api.sql.NamedQuery(query, params)
+func (api *API) query(c echo.Context) error {
+	var rows rowsInterface
+	var err error
+	var ele interface{}
+	switch c.Path() {
+	case "/":
+		rows, err = api.sql.NamedQuery(
+			"SELECT datname FROM pg_database WHERE datistemplate = false;",
+			nil,
+		)
+		ele = new(string)
+	case "/:database":
+		rows, err = api.sql.NamedQuery(
+			"SELECT table_schema FROM information_schema.tables",
+			map[string]interface{}{
+				"database": c.Param("database"),
+			},
+		)
+		ele = new(string)
+	case "/:database/:schema":
+		rows, err = api.sql.NamedQuery(
+			"SELECT table_name FROM information_schema.tables WHERE table_schema = :schema",
+			map[string]interface{}{
+				"database": c.Param("database"),
+				"schema":   c.Param("schema"),
+			},
+		)
+		ele = new(string)
+	case "/:database/:schema/:table":
+		rows, err = api.sql.NamedQuery(
+			"SELECT datname FROM pg_database WHERE datistemplate = false;",
+			nil,
+		)
+		ele = new(string)
+	default:
+		return fmt.Errorf("Unsupported query type: %s", c.Path())
+	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	array := make([]string, 0)
+	var array []interface{}
 	for rows.Next() {
-		var ele string
-		if err := rows.Scan(&ele); err != nil {
-			return nil, err
+		if err := rows.Scan(ele); err != nil {
+			return err
 		}
 		array = append(array, ele)
 	}
-	return array, nil
-}
-
-func (api *API) getDatabases(c echo.Context) error {
-	databases, err := api.selectStringArray(
-		"SELECT datname FROM pg_database WHERE datistemplate = false;", nil,
-	)
-	c.JSON(http.StatusOK, databases)
+	c.JSON(http.StatusOK, array)
 
 	return err
-}
-
-func (api *API) getSchemas(c echo.Context) error {
-	databases, err := api.selectStringArray(
-		"SELECT table_schema FROM information_schema.tables",
-		map[string]interface{}{
-			"database": c.Param("database"),
-		},
-	)
-	c.JSON(http.StatusOK, databases)
-
-	return err
-}
-
-func (api *API) getTables(c echo.Context) error {
-	databases, err := api.selectStringArray(
-		"SELECT table_name FROM information_schema.tables WHERE table_schema = :schema",
-		map[string]interface{}{
-			"database": c.Param("database"),
-			"schema":   c.Param("schema"),
-		},
-	)
-	c.JSON(http.StatusOK, databases)
-
-	return err
-}
-
-func (api *API) getSelect(c echo.Context) error {
-	return nil
 }
