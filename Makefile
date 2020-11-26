@@ -22,7 +22,7 @@ launch-postgres:
 		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
 		-e POSTGRES_USER=$(POSTGRES_USER) \
 		-e POSTGRES_DB=$(POSTGRES_DB) \
-		grest_testdb|| $(MAKE) failclean
+		grest_testdb || $(MAKE) failclean
 
 check-postgres: launch-postgres
 	$(DOCKER) run -d --rm \
@@ -31,7 +31,10 @@ check-postgres: launch-postgres
 		busybox sh -c 'until nc -z $(POSTGRES_CONTAINER_NAME) 5432; do sleep 1; done' \
 		|| $(MAKE) failclean
 
-test: build launch-postgres check-postgres
+test: build
+	$(MAKE) onlytest || $(MAKE) failclean
+	$(MAKE) clean
+onlytest: launch-postgres check-postgres
 	$(DOCKER) run --rm \
 		--network $(POSTGRES_CONTAINER_NAME) \
 		-e GREST_INTEG_TEST=true \
@@ -40,8 +43,7 @@ test: build launch-postgres check-postgres
 		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
 		-e POSTGRES_USER=$(POSTGRES_USER) \
 		-e POSTGRES_DB=$(POSTGRES_DB) \
-		grest_test || $(MAKE) failclean
-	$(MAKE) clean
+		grest_test
 
 postgres-logs:
 	$(DOCKER) logs -f $(POSTGRES_CONTAINER_NAME)

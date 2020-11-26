@@ -7,12 +7,14 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo"
 
 	// Need to add postgres driver
-	_ "github.com/jackc/pgx/stdlib"
+	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/stdlib"
 )
 
 const sanitizeRegex = "[A-Za-z][A-Za-z0-9_]*"
@@ -21,7 +23,7 @@ var sqlSanitize = regexp.MustCompile(sanitizeRegex)
 
 func supportedTypes() []string {
 	return []string{
-		"integer", "text", "boolean",
+		"real", "text", "boolean",
 	}
 }
 
@@ -32,10 +34,23 @@ type API struct {
 
 // NewAPI - Create new Postgres API
 func NewApi() *API {
-	db, err := sqlx.Connect("pgx", "postgres://postgres:postgres@grest-test-postgres:5432/postgres?sslmode=disable")
+	connConfig := pgx.ConnConfig{
+		Host:     "grest-test-postgres",
+		Database: "postgres",
+		User:     "postgres",
+		Password: "postgres",
+	}
+	connPool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
+		ConnConfig:     connConfig,
+		AfterConnect:   nil,
+		MaxConnections: 20,
+		AcquireTimeout: 30 * time.Second,
+	})
 	if err != nil {
 		log.Fatalln(err)
 	}
+
+	db := sqlx.NewDb(stdlib.OpenDBFromPool(connPool), "pgx")
 
 	_, err = db.Exec("CREATE ROLE anon")
 	if err != nil {
@@ -55,6 +70,8 @@ func (api *API) GetServer() *echo.Echo {
 	e.GET("/:database/:schema", api.query)
 	e.GET("/:database/:schema/:table", api.query)
 
+	e.POST("/:database/:schema/:table", api.insert)
+
 	// Special endpoints
 	e.PUT("/:database/:schema/:table", api.createTable)
 
@@ -65,7 +82,7 @@ func (api *API) GetServer() *echo.Echo {
 	return e
 }
 
-func (api *API) startTx(c echo.Context) (txInterface, error) {
+func (api *API) setRole(c echo.Context) (txInterface, error) {
 	username, ok := c.Get("username").(string)
 	if !ok || !sqlSanitize.Match([]byte(username)) {
 		log.Println("Using anon Role")
@@ -91,7 +108,7 @@ func (api *API) query(c echo.Context) error {
 	var err error
 	var ele interface{}
 
-	txn, err := api.startTx(c)
+	txn, err := api.setRole(c)
 	if err != nil {
 		return err
 	}
@@ -129,7 +146,6 @@ func (api *API) query(c echo.Context) error {
 	default:
 		return fmt.Errorf("Unsupported query type: %s", c.Path())
 	}
-	defer rows.Close()
 
 	if err != nil {
 		log.Println("Failed to run query", err)
@@ -149,6 +165,15 @@ func (api *API) query(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
+
+	rows.Close()
+	_, err = txn.NamedExec("RESET ROLE", map[string]interface{}{})
+	if err != nil {
+		log.Println("Failed to reset role", err)
+		txn.Rollback()
+		return echo.NewHTTPError(http.StatusUnauthorized, err)
+	}
+
 	c.JSON(http.StatusOK, array)
 	txn.Commit()
 	return err
@@ -157,7 +182,7 @@ func (api *API) query(c echo.Context) error {
 func (api *API) createTable(c echo.Context) error {
 	var err error
 
-	txn, err := api.startTx(c)
+	txn, err := api.setRole(c)
 	if err != nil {
 		return err
 	}
@@ -167,7 +192,16 @@ func (api *API) createTable(c echo.Context) error {
 		sqlSanitize.Match([]byte(c.Param("table"))) {
 
 		var body map[string]string
-		c.Bind(body)
+		c.Bind(&body)
+		if len(body) == 0 {
+			return echo.NewHTTPError(
+				http.StatusBadRequest,
+				fmt.Sprintf(
+					"empty body %v",
+					body,
+				),
+			)
+		}
 		fields := []string{}
 		for k, v := range body {
 			if !sqlSanitize.Match([]byte(k)) {
@@ -179,13 +213,14 @@ func (api *API) createTable(c echo.Context) error {
 					),
 				)
 			}
-			var colType *string = nil
+			found := false
 			for _, sqlType := range supportedTypes() {
 				if v == sqlType {
-					colType = &sqlType
+					found = true
+					fields = append(fields, fmt.Sprintf("%s %s", k, sqlType))
 				}
 			}
-			if colType == nil {
+			if !found {
 				return echo.NewHTTPError(
 					http.StatusBadRequest,
 					fmt.Sprintf(
@@ -194,15 +229,16 @@ func (api *API) createTable(c echo.Context) error {
 					),
 				)
 			}
-			fields = append(fields, fmt.Sprintf("%s %s", k, *colType))
 		}
 
+		query := fmt.Sprintf(
+			"CREATE TABLE %s.%s.%s (%s)",
+			c.Param("database"), c.Param("schema"), c.Param("table"),
+			strings.Join(fields, ", "),
+		)
+		log.Println(query)
 		_, err = txn.NamedExec(
-			fmt.Sprintf(
-				"CREATE TABLE %s.%s.%s (%s)",
-				c.Param("database"), c.Param("schema"), c.Param("table"),
-				strings.Join(fields, ", "),
-			),
+			query,
 			map[string]interface{}{},
 		)
 	} else {
@@ -219,6 +255,90 @@ func (api *API) createTable(c echo.Context) error {
 		log.Println("Failed to run query", err)
 		txn.Rollback()
 		return echo.NewHTTPError(http.StatusInternalServerError, err)
+	}
+
+	_, err = txn.NamedExec("RESET ROLE", map[string]interface{}{})
+	if err != nil {
+		log.Println("Failed to reset role", err)
+		txn.Rollback()
+		return echo.NewHTTPError(http.StatusUnauthorized, err)
+	}
+
+	c.JSON(http.StatusOK, map[string]string{
+		"message": "OK",
+	})
+	txn.Commit()
+	return err
+}
+
+func (api *API) insert(c echo.Context) error {
+	var err error
+
+	txn, err := api.setRole(c)
+	if err != nil {
+		return err
+	}
+
+	if sqlSanitize.Match([]byte(c.Param("database"))) &&
+		sqlSanitize.Match([]byte(c.Param("schema"))) &&
+		sqlSanitize.Match([]byte(c.Param("table"))) {
+
+		var body map[string]interface{}
+		c.Bind(&body)
+		if len(body) == 0 {
+			return echo.NewHTTPError(
+				http.StatusBadRequest,
+				fmt.Sprintf(
+					"empty body %v",
+					body,
+				),
+			)
+		}
+		fields, params := []string{}, []string{}
+		for k := range body {
+			if !sqlSanitize.Match([]byte(k)) {
+				return echo.NewHTTPError(
+					http.StatusBadRequest,
+					fmt.Sprintf(
+						"table columns must match /%s/",
+						sanitizeRegex,
+					),
+				)
+			}
+			fields = append(fields, k)
+			params = append(params, ":"+k)
+		}
+		log.Println(fields, params, body)
+
+		query := fmt.Sprintf(
+			"INSERT INTO %s.%s.%s (%s) VALUES (%s)",
+			c.Param("database"), c.Param("schema"), c.Param("table"),
+			strings.Join(fields, ", "),
+			strings.Join(params, ", "),
+		)
+		log.Println(query)
+		_, err = txn.NamedExec(query, body)
+	} else {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			fmt.Sprintf(
+				"database, schema and table must match /%s/",
+				sanitizeRegex,
+			),
+		)
+	}
+
+	if err != nil {
+		log.Println("Failed to run query", err)
+		txn.Rollback()
+		return echo.NewHTTPError(http.StatusInternalServerError, err)
+	}
+
+	_, err = txn.NamedExec("RESET ROLE", map[string]interface{}{})
+	if err != nil {
+		log.Println("Failed to reset role", err)
+		txn.Rollback()
+		return echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
 
 	c.JSON(http.StatusOK, map[string]string{

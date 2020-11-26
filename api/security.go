@@ -31,11 +31,11 @@ func (api *API) addBasicAuth(e *echo.Echo) {
 				"username": username,
 			},
 		)
-		defer rows.Close()
 		if err != nil {
 			log.Println("Failed to query for passwords", err)
 			return false, err
 		}
+		defer rows.Close()
 
 		if rows.Next() {
 			var username string

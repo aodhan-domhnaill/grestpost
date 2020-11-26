@@ -2,41 +2,20 @@ package api
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
-func NewTestAPI() *API {
-	api := NewApi()
-	_, err := api.sql.NamedExec(
-		fmt.Sprintf("CREATE TABLE %s (username text, password text)", os.Getenv("GREST_USER_TABLE")),
-		map[string]interface{}{},
-	)
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = api.sql.NamedExec(
-		fmt.Sprintf("INSERT INTO %s VALUES (:username, crypt(:password, gen_salt('bf', 8)));", os.Getenv("GREST_USER_TABLE")),
-		map[string]interface{}{
-			"username": "test",
-			"password": "test",
-		},
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return api
-}
-
 func TestGets(t *testing.T) {
-	api := NewTestAPI()
+	start := time.Now()
+	api := NewApi()
 	server := api.GetServer()
+	if time.Since(start) > time.Second {
+		t.Error("Slow start up time", time.Since(start))
+	}
 
 	type GetTest struct {
 		req      *http.Request
@@ -70,7 +49,16 @@ func TestGets(t *testing.T) {
 			httptest.NewRequest(
 				http.MethodPut, "/postgres/public/testtable",
 				strings.NewReader(
-					`{"col": "integer"}`,
+					`{"col": "real"}`,
+				),
+			),
+			http.StatusOK, "test", "test",
+		},
+		{
+			httptest.NewRequest(
+				http.MethodPost, "/postgres/public/testtable",
+				strings.NewReader(
+					`{"col": 1}`,
 				),
 			),
 			http.StatusOK, "test", "test",
@@ -83,6 +71,7 @@ func TestGets(t *testing.T) {
 			func(t *testing.T) {
 				start := time.Now()
 				test.req.SetBasicAuth(test.username, test.password)
+				test.req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				server.ServeHTTP(rec, test.req)
 				if test.status != rec.Code {
