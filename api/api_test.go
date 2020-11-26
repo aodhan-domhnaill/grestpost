@@ -6,21 +6,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
+	"time"
 )
 
 func NewTestAPI() *API {
 	api := NewApi()
-	_, err := api.sql.NamedQuery(
+	_, err := api.sql.NamedExec(
 		fmt.Sprintf("CREATE TABLE %s (username text, password text)", os.Getenv("GREST_USER_TABLE")),
 		map[string]interface{}{},
 	)
 	if err != nil {
 		log.Println(err)
 	}
-	_, err = api.sql.NamedQuery(
+	_, err = api.sql.NamedExec(
 		fmt.Sprintf("INSERT INTO %s VALUES (:username, crypt(:password, gen_salt('bf', 8)));", os.Getenv("GREST_USER_TABLE")),
 		map[string]interface{}{
 			"username": "test",
@@ -51,20 +51,29 @@ func TestGets(t *testing.T) {
 			http.StatusOK, "test", "test",
 		},
 		{
-			httptest.NewRequest(http.MethodGet, "/testdb", nil),
+			httptest.NewRequest(http.MethodGet, "/postgres", nil),
 			http.StatusOK, "test", "test",
 		},
 		{
-			httptest.NewRequest(http.MethodGet, "/testdb/testschema", nil),
+			httptest.NewRequest(http.MethodGet, "/postgres/public", nil),
 			http.StatusOK, "test", "test",
 		},
 		{
-			httptest.NewRequest(http.MethodGet, "/testdb/testschema", nil),
+			httptest.NewRequest(http.MethodGet, "/postgres/public", nil),
 			http.StatusUnauthorized, "test", "wrongpassword",
 		},
 		{
-			httptest.NewRequest(http.MethodGet, "/testdb/testschema", nil),
+			httptest.NewRequest(http.MethodGet, "/postgres/public", nil),
 			http.StatusUnauthorized, "nonexistant", "test",
+		},
+		{
+			httptest.NewRequest(
+				http.MethodPut, "/postgres/public/testtable",
+				strings.NewReader(
+					`{"col": "integer"}`,
+				),
+			),
+			http.StatusOK, "test", "test",
 		},
 	}
 
@@ -72,10 +81,19 @@ func TestGets(t *testing.T) {
 		t.Run(
 			fmt.Sprintf("%s %s", test.req.Method, test.req.RequestURI),
 			func(t *testing.T) {
+				start := time.Now()
 				test.req.SetBasicAuth(test.username, test.password)
 				rec := httptest.NewRecorder()
 				server.ServeHTTP(rec, test.req)
-				assert.Equal(t, test.status, rec.Code)
+				if test.status != rec.Code {
+					t.Errorf(
+						"HTTP Code mismatch %d != %d : %s",
+						test.status, rec.Code, string(rec.Body.Bytes()),
+					)
+				}
+				if time.Since(start) > time.Second {
+					t.Error("Test ran for too long", time.Since(start))
+				}
 			},
 		)
 	}

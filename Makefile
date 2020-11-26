@@ -43,6 +43,9 @@ test: build launch-postgres check-postgres
 		grest_test || $(MAKE) failclean
 	$(MAKE) clean
 
+postgres-logs:
+	$(DOCKER) logs -f $(POSTGRES_CONTAINER_NAME)
+
 clean:
 	$(DOCKER) stop grest-check-postgres || echo Stopped
 	$(DOCKER) rm -f grest-check-postgres || echo Removed
