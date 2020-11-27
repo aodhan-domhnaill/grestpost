@@ -1,12 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
+	"text/template"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -65,15 +66,138 @@ func (api *API) GetServer() *echo.Echo {
 	e := echo.New()
 
 	// A lot of endpoints are just running a query and returning a list of results
-	e.GET("/", api.query)
-	e.GET("/:database", api.query)
-	e.GET("/:database/:schema", api.query)
-	e.GET("/:database/:schema/:table", api.query)
+	e.GET("/", func(c echo.Context) error {
+		results, err := api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create table").Parse(
+				"SELECT DISTINCT datname FROM pg_database WHERE datistemplate = false;",
+			)),
+			map[string]interface{}{},
+			map[string]interface{}{},
+		)
 
-	e.POST("/:database/:schema/:table", api.insert)
+		if err == nil {
+			c.JSON(http.StatusOK, results)
+		}
+		return err
+	})
+	e.GET("/:database", func(c echo.Context) error {
+		results, err := api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create table").Parse(
+				"SELECT DISTINCT table_schema FROM information_schema.tables",
+			)),
+			map[string]interface{}{},
+			map[string]interface{}{
+				"database": c.Param("database"),
+			},
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, results)
+		}
+		return err
+	})
+	e.GET("/:database/:schema", func(c echo.Context) error {
+		results, err := api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create table").Parse(
+				"SELECT DISTINCT table_name FROM information_schema.tables WHERE table_schema = :schema",
+			)),
+			map[string]interface{}{},
+			map[string]interface{}{
+				"database": c.Param("database"),
+				"schema":   c.Param("schema"),
+			},
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, results)
+		}
+		return err
+	})
+	e.GET("/:database/:schema/:table", func(c echo.Context) error {
+		results, err := api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create table").Parse(
+				"SELECT DISTINCT table_schema FROM information_schema.tables",
+			)),
+			map[string]interface{}{},
+			map[string]interface{}{
+				"database": c.Param("database"),
+				"schema":   c.Param("schema"),
+				"table":    c.Param("table"),
+			},
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, results)
+		}
+		return err
+	})
+
+	e.POST("/:database/:schema/:table", func(c echo.Context) error {
+		var cols map[string]interface{}
+		c.Bind(&cols)
+		_, err := api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create table").Parse(
+				"INSERT INTO {{.database}}.{{.schema}}.{{.table}} ("+
+					"{{$first := true}}{{range $col, $val := .columns}}"+
+					"{{if $first}}{{$first = false}}{{else}},{{end}}"+
+					"{{$col}}{{end}}"+
+					") VALUES ("+
+					"{{$first = true}}{{range $col, $val := .columns}}"+
+					"{{if $first}}{{$first = false}}{{else}},{{end}}"+
+					":{{$col}}{{end}}"+
+					")",
+			)),
+			map[string]interface{}{
+				"database": c.Param("database"),
+				"schema":   c.Param("schema"),
+				"table":    c.Param("table"),
+				"columns":  cols,
+			},
+			cols,
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, map[string]string{
+				"message": "OK",
+			})
+		}
+		return err
+	})
 
 	// Special endpoints
-	e.PUT("/:database/:schema/:table", api.createTable)
+	e.PUT("/:database/:schema/:table", func(c echo.Context) error {
+		var cols map[string]string
+		c.Bind(&cols)
+		_, err := api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create table").Parse(
+				"CREATE TABLE {{.database}}.{{.schema}}.{{.table}} ("+
+					"{{$first := true}}{{range $col, $type := .columns}}"+
+					"{{if $first}}{{$first = false}}{{else}},{{end}}"+
+					"{{$col}} {{$type}}{{end}}"+
+					")",
+			)),
+			map[string]interface{}{
+				"database": c.Param("database"),
+				"schema":   c.Param("schema"),
+				"table":    c.Param("table"),
+				"columns":  cols,
+			},
+			map[string]interface{}{},
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, map[string]string{
+				"message": "OK",
+			})
+		}
+		return err
+	})
 
 	if os.Getenv("GREST_AUTHENTICATION") == "basic" {
 		api.addBasicAuth(e)
@@ -82,9 +206,37 @@ func (api *API) GetServer() *echo.Echo {
 	return e
 }
 
-func (api *API) setRole(c echo.Context) (txInterface, error) {
-	username, ok := c.Get("username").(string)
-	if !ok || !sqlSanitize.Match([]byte(username)) {
+//// Core working code
+
+func sanitize(params map[string]interface{}) error {
+	for k, v := range params {
+		switch v.(type) {
+		case string:
+			if !sqlSanitize.Match([]byte(k)) || !sqlSanitize.Match([]byte(v.(string))) {
+				return echo.NewHTTPError(
+					http.StatusBadRequest,
+					fmt.Sprintf("'%s' and '%s' must match /%s/", k, v, sanitizeRegex),
+				)
+			}
+		case map[string]interface{}:
+			if !sqlSanitize.Match([]byte(k)) {
+				return echo.NewHTTPError(
+					http.StatusBadRequest,
+					fmt.Sprintf("'%s' and '%s' must match /%s/", k, v, sanitizeRegex),
+				)
+			}
+			return sanitize(v.(map[string]interface{}))
+		}
+
+	}
+	return nil
+}
+
+func (api *API) runQuery(
+	username string, queryTemplate *template.Template, templateParams map[string]interface{},
+	queryParams map[string]interface{}) ([]map[string]interface{}, error) {
+
+	if !sqlSanitize.Match([]byte(username)) {
 		log.Println("Using anon Role")
 		username = "anon"
 	}
@@ -100,250 +252,54 @@ func (api *API) setRole(c echo.Context) (txInterface, error) {
 		txn.Rollback()
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
-	return txn, nil
-}
 
-func (api *API) query(c echo.Context) error {
-	var rows rowsInterface
-	var err error
-	var ele interface{}
-
-	txn, err := api.setRole(c)
+	// Sanitize
+	err = sanitize(templateParams)
 	if err != nil {
-		return err
+		log.Println("Failed to sanitize params", err)
+		return nil, err
 	}
 
-	switch c.Path() {
-	case "/":
-		rows, err = txn.NamedQuery(
-			"SELECT DISTINCT datname FROM pg_database WHERE datistemplate = false;",
-			map[string]interface{}{},
-		)
-		ele = new(string)
-	case "/:database":
-		rows, err = txn.NamedQuery(
-			"SELECT DISTINCT table_schema FROM information_schema.tables",
-			map[string]interface{}{
-				"database": c.Param("database"),
-			},
-		)
-		ele = new(string)
-	case "/:database/:schema":
-		rows, err = txn.NamedQuery(
-			"SELECT DISTINCT table_name FROM information_schema.tables WHERE table_schema = :schema",
-			map[string]interface{}{
-				"database": c.Param("database"),
-				"schema":   c.Param("schema"),
-			},
-		)
-		ele = new(string)
-	case "/:database/:schema/:table":
-		rows, err = txn.NamedQuery(
-			"SELECT datname FROM pg_database WHERE datistemplate = false;",
-			map[string]interface{}{},
-		)
-		ele = new(string)
-	default:
-		return fmt.Errorf("Unsupported query type: %s", c.Path())
+	var queryBuffer bytes.Buffer
+	err = queryTemplate.Execute(&queryBuffer, templateParams)
+	if err != nil {
+		log.Println("Template failed", err)
+		return nil, err
 	}
 
+	log.Println(string(queryBuffer.Bytes()))
+	var results []map[string]interface{}
+	row := map[string]interface{}{}
+	rows, err := txn.NamedQuery(
+		string(queryBuffer.Bytes()),
+		queryParams,
+	)
 	if err != nil {
 		log.Println("Failed to run query", err)
-		txn.Rollback()
-		return echo.NewHTTPError(http.StatusInternalServerError, err)
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
+	}
+	for rows.Next() {
+		if err := rows.MapScan(row); err != nil {
+			log.Println("Failed to scan row", err)
+			rows.Close()
+			return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
+		}
+		results = append(results, row)
 	}
 
-	var array []interface{}
-	for rows.Next() {
-		if err := rows.Scan(ele); err != nil {
-			log.Println("Failed to scan row", err)
-			return echo.NewHTTPError(http.StatusInternalServerError, err)
-		}
-		array = append(array, ele)
-	}
 	err = rows.Err()
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err)
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
-
 	rows.Close()
-	_, err = txn.NamedExec("RESET ROLE", map[string]interface{}{})
-	if err != nil {
-		log.Println("Failed to reset role", err)
-		txn.Rollback()
-		return echo.NewHTTPError(http.StatusUnauthorized, err)
-	}
-
-	c.JSON(http.StatusOK, array)
-	txn.Commit()
-	return err
-}
-
-func (api *API) createTable(c echo.Context) error {
-	var err error
-
-	txn, err := api.setRole(c)
-	if err != nil {
-		return err
-	}
-
-	if sqlSanitize.Match([]byte(c.Param("database"))) &&
-		sqlSanitize.Match([]byte(c.Param("schema"))) &&
-		sqlSanitize.Match([]byte(c.Param("table"))) {
-
-		var body map[string]string
-		c.Bind(&body)
-		if len(body) == 0 {
-			return echo.NewHTTPError(
-				http.StatusBadRequest,
-				fmt.Sprintf(
-					"empty body %v",
-					body,
-				),
-			)
-		}
-		fields := []string{}
-		for k, v := range body {
-			if !sqlSanitize.Match([]byte(k)) {
-				return echo.NewHTTPError(
-					http.StatusBadRequest,
-					fmt.Sprintf(
-						"table columns must match /%s/",
-						sanitizeRegex,
-					),
-				)
-			}
-			found := false
-			for _, sqlType := range supportedTypes() {
-				if v == sqlType {
-					found = true
-					fields = append(fields, fmt.Sprintf("%s %s", k, sqlType))
-				}
-			}
-			if !found {
-				return echo.NewHTTPError(
-					http.StatusBadRequest,
-					fmt.Sprintf(
-						"table column types must be one of %v",
-						supportedTypes(),
-					),
-				)
-			}
-		}
-
-		query := fmt.Sprintf(
-			"CREATE TABLE %s.%s.%s (%s)",
-			c.Param("database"), c.Param("schema"), c.Param("table"),
-			strings.Join(fields, ", "),
-		)
-		log.Println(query)
-		_, err = txn.NamedExec(
-			query,
-			map[string]interface{}{},
-		)
-	} else {
-		return echo.NewHTTPError(
-			http.StatusBadRequest,
-			fmt.Sprintf(
-				"database, schema and table must match /%s/",
-				sanitizeRegex,
-			),
-		)
-	}
-
-	if err != nil {
-		log.Println("Failed to run query", err)
-		txn.Rollback()
-		return echo.NewHTTPError(http.StatusInternalServerError, err)
-	}
 
 	_, err = txn.NamedExec("RESET ROLE", map[string]interface{}{})
 	if err != nil {
 		log.Println("Failed to reset role", err)
 		txn.Rollback()
-		return echo.NewHTTPError(http.StatusUnauthorized, err)
+		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
-
-	c.JSON(http.StatusOK, map[string]string{
-		"message": "OK",
-	})
 	txn.Commit()
-	return err
-}
 
-func (api *API) insert(c echo.Context) error {
-	var err error
-
-	txn, err := api.setRole(c)
-	if err != nil {
-		return err
-	}
-
-	if sqlSanitize.Match([]byte(c.Param("database"))) &&
-		sqlSanitize.Match([]byte(c.Param("schema"))) &&
-		sqlSanitize.Match([]byte(c.Param("table"))) {
-
-		var body map[string]interface{}
-		c.Bind(&body)
-		if len(body) == 0 {
-			return echo.NewHTTPError(
-				http.StatusBadRequest,
-				fmt.Sprintf(
-					"empty body %v",
-					body,
-				),
-			)
-		}
-		fields, params := []string{}, []string{}
-		for k := range body {
-			if !sqlSanitize.Match([]byte(k)) {
-				return echo.NewHTTPError(
-					http.StatusBadRequest,
-					fmt.Sprintf(
-						"table columns must match /%s/",
-						sanitizeRegex,
-					),
-				)
-			}
-			fields = append(fields, k)
-			params = append(params, ":"+k)
-		}
-		log.Println(fields, params, body)
-
-		query := fmt.Sprintf(
-			"INSERT INTO %s.%s.%s (%s) VALUES (%s)",
-			c.Param("database"), c.Param("schema"), c.Param("table"),
-			strings.Join(fields, ", "),
-			strings.Join(params, ", "),
-		)
-		log.Println(query)
-		_, err = txn.NamedExec(query, body)
-	} else {
-		return echo.NewHTTPError(
-			http.StatusBadRequest,
-			fmt.Sprintf(
-				"database, schema and table must match /%s/",
-				sanitizeRegex,
-			),
-		)
-	}
-
-	if err != nil {
-		log.Println("Failed to run query", err)
-		txn.Rollback()
-		return echo.NewHTTPError(http.StatusInternalServerError, err)
-	}
-
-	_, err = txn.NamedExec("RESET ROLE", map[string]interface{}{})
-	if err != nil {
-		log.Println("Failed to reset role", err)
-		txn.Rollback()
-		return echo.NewHTTPError(http.StatusUnauthorized, err)
-	}
-
-	c.JSON(http.StatusOK, map[string]string{
-		"message": "OK",
-	})
-	txn.Commit()
-	return err
+	return results, nil
 }

@@ -13,7 +13,7 @@ func TestGets(t *testing.T) {
 	start := time.Now()
 	api := NewApi()
 	server := api.GetServer()
-	if time.Since(start) > time.Second {
+	if time.Since(start) > 2*time.Second {
 		t.Error("Slow start up time", time.Since(start))
 	}
 
@@ -80,7 +80,7 @@ func TestGets(t *testing.T) {
 						test.status, rec.Code, string(rec.Body.Bytes()),
 					)
 				}
-				if time.Since(start) > time.Second {
+				if time.Since(start) > 2*time.Second {
 					t.Error("Test ran for too long", time.Since(start))
 				}
 			},
