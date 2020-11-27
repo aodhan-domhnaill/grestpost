@@ -4,7 +4,7 @@ POSTGRES_DB = "postgres"
 POSTGRES_PASSWORD = "postgres"
 POSTGRES_USER = "postgres"
 
-POSTGRES_CONTAINER_NAME = grest-test-postgres
+POSTGRES_CONTAINER_NAME = gresttestpostgres
 
 all: build test
 
@@ -22,7 +22,6 @@ launch-postgres:
 		-e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
 		-e POSTGRES_USER=$(POSTGRES_USER) \
 		-e POSTGRES_DB=$(POSTGRES_DB) \
-		-p 5432:5432 \
 		grest_testdb || $(MAKE) failclean
 
 check-postgres: launch-postgres
@@ -37,7 +36,7 @@ test: build
 	$(MAKE) clean
 onlytest: launch-postgres check-postgres
 	$(DOCKER) run --rm \
-		--network host \
+		--network $(POSTGRES_CONTAINER_NAME) \
 		-e GREST_INTEG_TEST=true \
 		-e GREST_AUTHENTICATION=basic \
 		-e GREST_USER_TABLE=users \
