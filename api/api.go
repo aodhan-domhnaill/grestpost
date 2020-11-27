@@ -35,7 +35,7 @@ type API struct {
 // NewAPI - Create new Postgres API
 func NewApi() *API {
 	connConfig := pgx.ConnConfig{
-		Host:     "grest-test-postgres",
+		Host:     "localhost",
 		Database: "postgres",
 		User:     "postgres",
 		Password: "postgres",
