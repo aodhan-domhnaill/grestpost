@@ -199,6 +199,42 @@ func (api *API) GetServer() *echo.Echo {
 		}
 		return err
 	})
+	e.PUT("/_roles/", func(c echo.Context) error {
+		var body map[string]string
+		c.Bind(&body)
+		_, err := api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create role").Parse(
+				"CREATE ROLE {{.username}}",
+			)),
+			map[string]interface{}{
+				"username": body["username"],
+			},
+			map[string]interface{}{},
+		)
+		if err != nil {
+			return err
+		}
+
+		_, err = api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("insert user").Parse(
+				"INSERT INTO users VALUES (:username, crypt(:password, gen_salt('bf', 8)));",
+			)),
+			map[string]interface{}{},
+			map[string]interface{}{
+				"username": body["username"],
+				"password": body["password"],
+			},
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, map[string]string{
+				"message": "OK",
+			})
+		}
+		return err
+	})
 
 	e.DELETE("/:database/:schema/:table", func(c echo.Context) error {
 		_, err := api.runQuery(
@@ -272,6 +308,22 @@ func sanitize(params map[string]interface{}) error {
 	return nil
 }
 
+func errorMapping(err error) error {
+	if pgerr, ok := err.(pgx.PgError); ok {
+		code, ok := map[string]int{
+			pgerrcode.UndefinedTable:        http.StatusNotFound,
+			pgerrcode.InsufficientPrivilege: http.StatusForbidden,
+		}[pgerr.Code]
+		if !ok {
+			log.Println("Couldn't find error code", pgerr.Code)
+			code = http.StatusInternalServerError
+		}
+		return echo.NewHTTPError(code, err)
+	}
+
+	return echo.NewHTTPError(http.StatusInternalServerError, err)
+}
+
 func (api *API) runQuery(
 	username string, queryTemplate *template.Template, templateParams map[string]interface{},
 	queryParams map[string]interface{}) ([]map[string]interface{}, error) {
@@ -316,16 +368,7 @@ func (api *API) runQuery(
 	)
 	if err != nil {
 		log.Println("Failed to run query", err)
-		if pgerr, ok := err.(pgx.PgError); ok {
-			code, ok := map[string]int{
-				pgerrcode.UndefinedTable: http.StatusNotFound,
-			}[pgerr.Code]
-			if !ok {
-				code = http.StatusInternalServerError
-			}
-			return nil, echo.NewHTTPError(code, err)
-		}
-		return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
+		return nil, errorMapping(err)
 	}
 	for rows.Next() {
 		if err := rows.MapScan(row); err != nil {
@@ -338,7 +381,8 @@ func (api *API) runQuery(
 
 	err = rows.Err()
 	if err != nil {
-		return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
+		log.Println("Failed to fetch rows", err)
+		return nil, errorMapping(err)
 	}
 	rows.Close()
 

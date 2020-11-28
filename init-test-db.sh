@@ -6,4 +6,5 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     CREATE ROLE test;
     CREATE TABLE users (username text, password text);
     INSERT INTO users VALUES ('test', crypt('test', gen_salt('bf', 8)));
+    INSERT INTO users VALUES ('postgres', crypt('test', gen_salt('bf', 8)));
 EOSQL

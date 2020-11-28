@@ -56,3 +56,6 @@ clean:
 	$(DOCKER) network rm $(POSTGRES_CONTAINER_NAME) || echo Removed
 failclean: clean
 	exit 1
+
+superclean: clean
+	$(DOCKER) rmi -f ${shell $(DOCKER) images -aq}

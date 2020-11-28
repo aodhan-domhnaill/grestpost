@@ -79,6 +79,42 @@ func TestGets(t *testing.T) {
 			httptest.NewRequest(http.MethodGet, "/postgres/public/testtable", nil),
 			http.StatusNotFound, "test", "test",
 		},
+		{
+			httptest.NewRequest(
+				http.MethodPut, "/_roles/",
+				strings.NewReader(
+					`{"username": "newuser", "password": "pass"}`,
+				),
+			),
+			http.StatusForbidden, "test", "test",
+		},
+		{
+			httptest.NewRequest(
+				http.MethodPut, "/_roles/",
+				strings.NewReader(
+					`{"username": "newuser", "password": "pass"}`,
+				),
+			),
+			http.StatusOK, "postgres", "test",
+		},
+		{
+			httptest.NewRequest(
+				http.MethodPut, "/postgres/public/testtable",
+				strings.NewReader(
+					`{"col": "real"}`,
+				),
+			),
+			http.StatusOK, "newuser", "pass",
+		},
+		{
+			httptest.NewRequest(
+				http.MethodPost, "/postgres/public/testtable",
+				strings.NewReader(
+					`{"col": 1}`,
+				),
+			),
+			http.StatusOK, "newuser", "pass",
+		},
 	}
 
 	for _, test := range tests {
