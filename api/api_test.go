@@ -63,6 +63,10 @@ func TestGets(t *testing.T) {
 			),
 			http.StatusOK, "test", "test",
 		},
+		{
+			httptest.NewRequest(http.MethodGet, "/postgres/public/testtable", nil),
+			http.StatusOK, "test", "test",
+		},
 	}
 
 	for _, test := range tests {
@@ -83,6 +87,7 @@ func TestGets(t *testing.T) {
 				if time.Since(start) > 2*time.Second {
 					t.Error("Test ran for too long", time.Since(start))
 				}
+				fmt.Println(string(rec.Body.Bytes()))
 			},
 		)
 	}

@@ -120,14 +120,14 @@ func (api *API) GetServer() *echo.Echo {
 		results, err := api.runQuery(
 			c.Get("username").(string),
 			template.Must(template.New("create table").Parse(
-				"SELECT DISTINCT table_schema FROM information_schema.tables",
+				"SELECT * FROM {{.database}}.{{.schema}}.{{.table}}",
 			)),
-			map[string]interface{}{},
 			map[string]interface{}{
 				"database": c.Param("database"),
 				"schema":   c.Param("schema"),
 				"table":    c.Param("table"),
 			},
+			map[string]interface{}{},
 		)
 
 		if err == nil {
