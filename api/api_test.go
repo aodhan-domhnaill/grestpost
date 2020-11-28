@@ -46,6 +46,10 @@ func TestGets(t *testing.T) {
 			http.StatusUnauthorized, "nonexistant", "test",
 		},
 		{
+			httptest.NewRequest(http.MethodDelete, "/postgres/public/testtable", nil),
+			http.StatusOK, "test", "test",
+		},
+		{
 			httptest.NewRequest(
 				http.MethodPut, "/postgres/public/testtable",
 				strings.NewReader(
@@ -66,6 +70,14 @@ func TestGets(t *testing.T) {
 		{
 			httptest.NewRequest(http.MethodGet, "/postgres/public/testtable", nil),
 			http.StatusOK, "test", "test",
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/postgres/public/testtable", nil),
+			http.StatusOK, "test", "test",
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/postgres/public/testtable", nil),
+			http.StatusNotFound, "test", "test",
 		},
 	}
 

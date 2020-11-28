@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo"
 
 	// Need to add postgres driver
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/stdlib"
 )
@@ -199,6 +200,45 @@ func (api *API) GetServer() *echo.Echo {
 		return err
 	})
 
+	e.DELETE("/:database/:schema/:table", func(c echo.Context) error {
+		_, err := api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create table").Parse(
+				"DROP TABLE IF EXISTS {{.database}}.{{.schema}}.{{.table}}",
+			)),
+			map[string]interface{}{
+				"database": c.Param("database"),
+				"schema":   c.Param("schema"),
+				"table":    c.Param("table"),
+			},
+			map[string]interface{}{},
+		)
+		if err != nil {
+			return err
+		}
+
+		_, err = api.runQuery(
+			c.Get("username").(string),
+			template.Must(template.New("create table").Parse(
+				"DROP VIEW IF EXISTS {{.database}}.{{.schema}}.{{.table}}",
+			)),
+			map[string]interface{}{
+				"database": c.Param("database"),
+				"schema":   c.Param("schema"),
+				"table":    c.Param("table"),
+			},
+			map[string]interface{}{},
+		)
+		if err != nil {
+			return err
+		}
+
+		c.JSON(http.StatusOK, map[string]string{
+			"message": "OK",
+		})
+		return err
+	})
+
 	if os.Getenv("GREST_AUTHENTICATION") == "basic" {
 		api.addBasicAuth(e)
 	}
@@ -276,6 +316,15 @@ func (api *API) runQuery(
 	)
 	if err != nil {
 		log.Println("Failed to run query", err)
+		if pgerr, ok := err.(pgx.PgError); ok {
+			code, ok := map[string]int{
+				pgerrcode.UndefinedTable: http.StatusNotFound,
+			}[pgerr.Code]
+			if !ok {
+				code = http.StatusInternalServerError
+			}
+			return nil, echo.NewHTTPError(code, err)
+		}
 		return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
 	}
 	for rows.Next() {
