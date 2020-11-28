@@ -79,6 +79,7 @@ func TestGets(t *testing.T) {
 			httptest.NewRequest(http.MethodGet, "/postgres/public/testtable", nil),
 			http.StatusNotFound, "test", "test",
 		},
+		// Can only create role as admin
 		{
 			httptest.NewRequest(
 				http.MethodPut, "/_roles/",
@@ -97,6 +98,7 @@ func TestGets(t *testing.T) {
 			),
 			http.StatusOK, "postgres", "test",
 		},
+		// Create table as newuser
 		{
 			httptest.NewRequest(
 				http.MethodPut, "/postgres/public/testtable",
@@ -114,6 +116,19 @@ func TestGets(t *testing.T) {
 				),
 			),
 			http.StatusOK, "newuser", "pass",
+		},
+		// Test that permissions for the new table are working
+		{
+			httptest.NewRequest(http.MethodGet, "/postgres/public/testtable", nil),
+			http.StatusForbidden, "test", "test",
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/postgres/public/testtable", nil),
+			http.StatusOK, "newuser", "pass",
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/postgres/public/testtable", nil),
+			http.StatusOK, "postgres", "test",
 		},
 	}
 
