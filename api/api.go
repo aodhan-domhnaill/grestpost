@@ -66,8 +66,10 @@ func NewApi() *API {
 func (api *API) GetServer() *echo.Echo {
 	e := echo.New()
 
+	d := e.Group("/_data")
+
 	// A lot of endpoints are just running a query and returning a list of results
-	e.GET("/", func(c echo.Context) error {
+	d.GET("/", func(c echo.Context) error {
 		results, err := api.runQuery(
 			c.Get("username").(string),
 			[]*template.Template{
@@ -84,7 +86,7 @@ func (api *API) GetServer() *echo.Echo {
 		}
 		return err
 	})
-	e.GET("/:database", func(c echo.Context) error {
+	d.GET("/:database", func(c echo.Context) error {
 		results, err := api.runQuery(
 			c.Get("username").(string),
 			[]*template.Template{
@@ -103,7 +105,7 @@ func (api *API) GetServer() *echo.Echo {
 		}
 		return err
 	})
-	e.GET("/:database/:schema", func(c echo.Context) error {
+	d.GET("/:database/:schema", func(c echo.Context) error {
 		results, err := api.runQuery(
 			c.Get("username").(string),
 			[]*template.Template{
@@ -123,7 +125,7 @@ func (api *API) GetServer() *echo.Echo {
 		}
 		return err
 	})
-	e.GET("/:database/:schema/:table", func(c echo.Context) error {
+	d.GET("/:database/:schema/:table", func(c echo.Context) error {
 		results, err := api.runQuery(
 			c.Get("username").(string),
 			[]*template.Template{
@@ -145,7 +147,7 @@ func (api *API) GetServer() *echo.Echo {
 		return err
 	})
 
-	e.POST("/:database/:schema/:table", func(c echo.Context) error {
+	d.POST("/:database/:schema/:table", func(c echo.Context) error {
 		var cols map[string]interface{}
 		c.Bind(&cols)
 		_, err := api.runQuery(
@@ -181,7 +183,7 @@ func (api *API) GetServer() *echo.Echo {
 	})
 
 	// Special endpoints
-	e.PUT("/:database/:schema/:table", func(c echo.Context) error {
+	d.PUT("/:database/:schema/:table", func(c echo.Context) error {
 		var cols map[string]string
 		c.Bind(&cols)
 		_, err := api.runQuery(
@@ -208,6 +210,46 @@ func (api *API) GetServer() *echo.Echo {
 			c.JSON(http.StatusOK, map[string]string{
 				"message": "OK",
 			})
+		}
+		return err
+	})
+
+	e.GET("/_roles/", func(c echo.Context) error {
+		results, err := api.runQuery(
+			c.Get("username").(string),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"SELECT DISTINCT grantee AS subj, table_name AS obj, privilege_type AS act " +
+						"FROM information_schema.role_table_grants ",
+				)),
+			},
+			map[string]interface{}{},
+			map[string]interface{}{},
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, results)
+		}
+		return err
+	})
+	e.GET("/_roles/:username", func(c echo.Context) error {
+		results, err := api.runQuery(
+			c.Get("username").(string), // Authed user, not param
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"SELECT DISTINCT grantee AS subj, table_name AS obj, privilege_type AS act " +
+						"FROM information_schema.role_table_grants " +
+						"WHERE grantee = :username",
+				)),
+			},
+			map[string]interface{}{},
+			map[string]interface{}{
+				"username": c.Param("username"),
+			},
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, results)
 		}
 		return err
 	})
@@ -241,7 +283,7 @@ func (api *API) GetServer() *echo.Echo {
 		return err
 	})
 
-	e.DELETE("/:database/:schema/:table", func(c echo.Context) error {
+	d.DELETE("/:database/:schema/:table", func(c echo.Context) error {
 		_, err := api.runQuery(
 			c.Get("username").(string),
 			[]*template.Template{
