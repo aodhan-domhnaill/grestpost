@@ -178,6 +178,23 @@ func TestGets(t *testing.T) {
 				}
 			},
 		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_roles/newuser", nil),
+			http.StatusForbidden, "test", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_roles/newuser", nil),
+			http.StatusOK, "postgres", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_roles/newuser", nil),
+			http.StatusNotFound, "postgres", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_roles/newuser", nil),
+			// Dangerous!! Unauthed user could discover roles by querying until they get a Forbidden
+			http.StatusNotFound, "test", "test", NoTest,
+		},
 	}
 
 	for _, test := range tests {

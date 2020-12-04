@@ -13,5 +13,6 @@ COPY go.* .
 RUN go mod download
 
 COPY . .
+RUN gofmt -l .
 
 CMD go test -cover ./...
