@@ -59,3 +59,4 @@ failclean: clean
 
 superclean: clean
 	$(DOCKER) rmi -f ${shell $(DOCKER) images -aq}
+	$(DOCKER) system prune -af

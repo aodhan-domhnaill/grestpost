@@ -70,9 +70,11 @@ func (api *API) GetServer() *echo.Echo {
 	e.GET("/", func(c echo.Context) error {
 		results, err := api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create table").Parse(
-				"SELECT DISTINCT datname FROM pg_database WHERE datistemplate = false;",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"SELECT DISTINCT datname FROM pg_database WHERE datistemplate = false;",
+				)),
+			},
 			map[string]interface{}{},
 			map[string]interface{}{},
 		)
@@ -85,9 +87,11 @@ func (api *API) GetServer() *echo.Echo {
 	e.GET("/:database", func(c echo.Context) error {
 		results, err := api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create table").Parse(
-				"SELECT DISTINCT table_schema FROM information_schema.tables",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"SELECT DISTINCT table_schema FROM information_schema.tables",
+				)),
+			},
 			map[string]interface{}{},
 			map[string]interface{}{
 				"database": c.Param("database"),
@@ -102,9 +106,11 @@ func (api *API) GetServer() *echo.Echo {
 	e.GET("/:database/:schema", func(c echo.Context) error {
 		results, err := api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create table").Parse(
-				"SELECT DISTINCT table_name FROM information_schema.tables WHERE table_schema = :schema",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"SELECT DISTINCT table_name FROM information_schema.tables WHERE table_schema = :schema",
+				)),
+			},
 			map[string]interface{}{},
 			map[string]interface{}{
 				"database": c.Param("database"),
@@ -120,9 +126,11 @@ func (api *API) GetServer() *echo.Echo {
 	e.GET("/:database/:schema/:table", func(c echo.Context) error {
 		results, err := api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create table").Parse(
-				"SELECT * FROM {{.database}}.{{.schema}}.{{.table}}",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"SELECT * FROM {{.database}}.{{.schema}}.{{.table}}",
+				)),
+			},
 			map[string]interface{}{
 				"database": c.Param("database"),
 				"schema":   c.Param("schema"),
@@ -142,17 +150,19 @@ func (api *API) GetServer() *echo.Echo {
 		c.Bind(&cols)
 		_, err := api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create table").Parse(
-				"INSERT INTO {{.database}}.{{.schema}}.{{.table}} ("+
-					"{{$first := true}}{{range $col, $val := .columns}}"+
-					"{{if $first}}{{$first = false}}{{else}},{{end}}"+
-					"{{$col}}{{end}}"+
-					") VALUES ("+
-					"{{$first = true}}{{range $col, $val := .columns}}"+
-					"{{if $first}}{{$first = false}}{{else}},{{end}}"+
-					":{{$col}}{{end}}"+
-					")",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"INSERT INTO {{.database}}.{{.schema}}.{{.table}} (" +
+						"{{$first := true}}{{range $col, $val := .columns}}" +
+						"{{if $first}}{{$first = false}}{{else}},{{end}}" +
+						"{{$col}}{{end}}" +
+						") VALUES (" +
+						"{{$first = true}}{{range $col, $val := .columns}}" +
+						"{{if $first}}{{$first = false}}{{else}},{{end}}" +
+						":{{$col}}{{end}}" +
+						")",
+				)),
+			},
 			map[string]interface{}{
 				"database": c.Param("database"),
 				"schema":   c.Param("schema"),
@@ -176,13 +186,15 @@ func (api *API) GetServer() *echo.Echo {
 		c.Bind(&cols)
 		_, err := api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create table").Parse(
-				"CREATE TABLE {{.database}}.{{.schema}}.{{.table}} ("+
-					"{{$first := true}}{{range $col, $type := .columns}}"+
-					"{{if $first}}{{$first = false}}{{else}},{{end}}"+
-					"{{$col}} {{$type}}{{end}}"+
-					")",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"CREATE TABLE {{.database}}.{{.schema}}.{{.table}} (" +
+						"{{$first := true}}{{range $col, $type := .columns}}" +
+						"{{if $first}}{{$first = false}}{{else}},{{end}}" +
+						"{{$col}} {{$type}}{{end}}" +
+						")",
+				)),
+			},
 			map[string]interface{}{
 				"database": c.Param("database"),
 				"schema":   c.Param("schema"),
@@ -204,9 +216,11 @@ func (api *API) GetServer() *echo.Echo {
 		c.Bind(&body)
 		_, err := api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create role").Parse(
-				"CREATE ROLE {{.username}}",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create role").Parse(
+					"CREATE ROLE {{.username}}",
+				)),
+			},
 			map[string]interface{}{
 				"username": body["username"],
 			},
@@ -218,9 +232,11 @@ func (api *API) GetServer() *echo.Echo {
 
 		_, err = api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("insert user").Parse(
-				"INSERT INTO users VALUES (:username, crypt(:password, gen_salt('bf', 8)));",
-			)),
+			[]*template.Template{
+				template.Must(template.New("insert user").Parse(
+					"INSERT INTO users VALUES (:username, crypt(:password, gen_salt('bf', 8)));",
+				)),
+			},
 			map[string]interface{}{},
 			map[string]interface{}{
 				"username": body["username"],
@@ -239,9 +255,11 @@ func (api *API) GetServer() *echo.Echo {
 	e.DELETE("/:database/:schema/:table", func(c echo.Context) error {
 		_, err := api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create table").Parse(
-				"DROP TABLE IF EXISTS {{.database}}.{{.schema}}.{{.table}}",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"DROP TABLE IF EXISTS {{.database}}.{{.schema}}.{{.table}}",
+				)),
+			},
 			map[string]interface{}{
 				"database": c.Param("database"),
 				"schema":   c.Param("schema"),
@@ -255,9 +273,11 @@ func (api *API) GetServer() *echo.Echo {
 
 		_, err = api.runQuery(
 			c.Get("username").(string),
-			template.Must(template.New("create table").Parse(
-				"DROP VIEW IF EXISTS {{.database}}.{{.schema}}.{{.table}}",
-			)),
+			[]*template.Template{
+				template.Must(template.New("create table").Parse(
+					"DROP VIEW IF EXISTS {{.database}}.{{.schema}}.{{.table}}",
+				)),
+			},
 			map[string]interface{}{
 				"database": c.Param("database"),
 				"schema":   c.Param("schema"),
@@ -325,7 +345,7 @@ func errorMapping(err error) error {
 }
 
 func (api *API) runQuery(
-	username string, queryTemplate *template.Template, templateParams map[string]interface{},
+	username string, queryTemplates []*template.Template, templateParams map[string]interface{},
 	queryParams map[string]interface{}) ([]map[string]interface{}, error) {
 
 	if !sqlSanitize.Match([]byte(username)) {
@@ -352,24 +372,28 @@ func (api *API) runQuery(
 		return nil, err
 	}
 
-	var queryBuffer bytes.Buffer
-	err = queryTemplate.Execute(&queryBuffer, templateParams)
-	if err != nil {
-		log.Println("Template failed", err)
-		return nil, err
+	var rows rowsInterface
+	for _, queryTemplate := range queryTemplates {
+		var queryBuffer bytes.Buffer
+		err = queryTemplate.Execute(&queryBuffer, templateParams)
+		if err != nil {
+			log.Println("Template failed", err)
+			return nil, err
+		}
+
+		log.Println(string(queryBuffer.Bytes()))
+		rows, err = txn.NamedQuery(
+			string(queryBuffer.Bytes()),
+			queryParams,
+		)
+		if err != nil {
+			log.Println("Failed to run query", err)
+			return nil, errorMapping(err)
+		}
 	}
 
-	log.Println(string(queryBuffer.Bytes()))
 	var results []map[string]interface{}
 	row := map[string]interface{}{}
-	rows, err := txn.NamedQuery(
-		string(queryBuffer.Bytes()),
-		queryParams,
-	)
-	if err != nil {
-		log.Println("Failed to run query", err)
-		return nil, errorMapping(err)
-	}
 	for rows.Next() {
 		if err := rows.MapScan(row); err != nil {
 			log.Println("Failed to scan row", err)
