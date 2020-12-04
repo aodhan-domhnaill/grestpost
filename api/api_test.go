@@ -139,6 +139,7 @@ func TestGets(t *testing.T) {
 				start := time.Now()
 				test.req.SetBasicAuth(test.username, test.password)
 				test.req.Header.Set("Content-Type", "application/json")
+				fmt.Println(test.req)
 				rec := httptest.NewRecorder()
 				server.ServeHTTP(rec, test.req)
 				if test.status != rec.Code {

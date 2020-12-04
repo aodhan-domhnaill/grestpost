@@ -19,7 +19,9 @@ func (api *API) addBasicAuth(e *echo.Echo) {
 		return
 	}
 	passwordQuery := fmt.Sprintf(
-		"SELECT username FROM %s WHERE username = :username AND password = crypt(:password, password);",
+		"SELECT username FROM %s "+
+			"WHERE username = :username "+
+			"AND password = crypt(:password, password);",
 		os.Getenv("GREST_USER_TABLE"),
 	)
 

@@ -220,24 +220,13 @@ func (api *API) GetServer() *echo.Echo {
 				template.Must(template.New("create role").Parse(
 					"CREATE ROLE {{.username}}",
 				)),
-			},
-			map[string]interface{}{
-				"username": body["username"],
-			},
-			map[string]interface{}{},
-		)
-		if err != nil {
-			return err
-		}
-
-		_, err = api.runQuery(
-			c.Get("username").(string),
-			[]*template.Template{
 				template.Must(template.New("insert user").Parse(
 					"INSERT INTO users VALUES (:username, crypt(:password, gen_salt('bf', 8)));",
 				)),
 			},
-			map[string]interface{}{},
+			map[string]interface{}{
+				"username": body["username"],
+			},
 			map[string]interface{}{
 				"username": body["username"],
 				"password": body["password"],
@@ -259,21 +248,6 @@ func (api *API) GetServer() *echo.Echo {
 				template.Must(template.New("create table").Parse(
 					"DROP TABLE IF EXISTS {{.database}}.{{.schema}}.{{.table}}",
 				)),
-			},
-			map[string]interface{}{
-				"database": c.Param("database"),
-				"schema":   c.Param("schema"),
-				"table":    c.Param("table"),
-			},
-			map[string]interface{}{},
-		)
-		if err != nil {
-			return err
-		}
-
-		_, err = api.runQuery(
-			c.Get("username").(string),
-			[]*template.Template{
 				template.Must(template.New("create table").Parse(
 					"DROP VIEW IF EXISTS {{.database}}.{{.schema}}.{{.table}}",
 				)),
@@ -353,42 +327,57 @@ func (api *API) runQuery(
 		username = "anon"
 	}
 
-	txn, err := api.sql.Beginx()
-	if err != nil {
-		log.Println("Failed to open transaction", err)
-		return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
+	var txn txInterface
+	{
+		var err error
+		txn, err = api.sql.Beginx()
+		if err != nil {
+			log.Println("Failed to open transaction", err)
+			return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
+		}
 	}
-	_, err = txn.NamedExec(fmt.Sprintf("SET ROLE %s ; ", username), map[string]interface{}{})
-	if err != nil {
+
+	if _, err := txn.NamedExec(
+		fmt.Sprintf("SET ROLE %s ; ", username), map[string]interface{}{},
+	); err != nil {
 		log.Println("Failed to set role", err)
 		txn.Rollback()
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
 
 	// Sanitize
-	err = sanitize(templateParams)
-	if err != nil {
+	if err := sanitize(templateParams); err != nil {
 		log.Println("Failed to sanitize params", err)
 		return nil, err
 	}
 
 	var rows rowsInterface
-	for _, queryTemplate := range queryTemplates {
+	for i, queryTemplate := range queryTemplates {
 		var queryBuffer bytes.Buffer
-		err = queryTemplate.Execute(&queryBuffer, templateParams)
-		if err != nil {
+		if err := queryTemplate.Execute(&queryBuffer, templateParams); err != nil {
 			log.Println("Template failed", err)
 			return nil, err
 		}
 
 		log.Println(string(queryBuffer.Bytes()))
-		rows, err = txn.NamedQuery(
-			string(queryBuffer.Bytes()),
-			queryParams,
-		)
-		if err != nil {
-			log.Println("Failed to run query", err)
-			return nil, errorMapping(err)
+		{
+			var err error
+			if i < len(queryTemplates)-1 {
+				_, err = txn.NamedExec(
+					string(queryBuffer.Bytes()),
+					queryParams,
+				)
+			} else {
+				rows, err = txn.NamedQuery(
+					string(queryBuffer.Bytes()),
+					queryParams,
+				)
+			}
+			if err != nil {
+				log.Println("Failed to run query", err)
+				txn.Rollback()
+				return nil, errorMapping(err)
+			}
 		}
 	}
 
@@ -402,16 +391,13 @@ func (api *API) runQuery(
 		}
 		results = append(results, row)
 	}
-
-	err = rows.Err()
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		log.Println("Failed to fetch rows", err)
 		return nil, errorMapping(err)
 	}
 	rows.Close()
 
-	_, err = txn.NamedExec("RESET ROLE", map[string]interface{}{})
-	if err != nil {
+	if _, err := txn.NamedExec("RESET ROLE", map[string]interface{}{}); err != nil {
 		log.Println("Failed to reset role", err)
 		txn.Rollback()
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)
