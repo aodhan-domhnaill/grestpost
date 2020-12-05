@@ -5,6 +5,7 @@ go 1.15
 require (
 	github.com/cockroachdb/apd v1.1.0 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
+	github.com/getkin/kin-openapi v0.32.0
 	github.com/gofrs/uuid v3.3.0+incompatible // indirect
 	github.com/jackc/fake v0.0.0-20150926172116-812a484cc733 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20201024163028-a0d42d470451

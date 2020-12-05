@@ -2,11 +2,14 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
+	"strings"
 	"text/template"
 	"time"
 
@@ -14,10 +17,13 @@ import (
 	"github.com/labstack/echo"
 
 	// Need to add postgres driver
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/stdlib"
 )
+
+var openapi string
 
 const sanitizeRegex = "[A-Za-z][A-Za-z0-9_]*"
 
@@ -62,12 +68,121 @@ func NewApi() *API {
 	return &API{sql: databaseBackend{db}}
 }
 
+func convertPath(path string) string {
+	return regexp.MustCompile(`\{([a-z]+)\}`).ReplaceAllString(path, ":$1")
+}
+
 // GetServer - Returns LabStack Echo Server
-func (api *API) GetServer() *echo.Echo {
+func (api *API) GetServer(swaggerpath string) *echo.Echo {
 	e := echo.New()
 
-	api.dataAPI(e.Group("/_data"))
-	api.roleAPI(e.Group("/_roles"))
+	swagger, err := openapi3.NewSwaggerLoader().LoadSwaggerFromFile(swaggerpath)
+	if err != nil {
+		log.Fatal("Failed to load swagger", err)
+	}
+	for path, item := range swagger.Paths {
+		for method, op := range item.Operations() {
+			if grest, ok := op.Extensions["x-grest"]; ok {
+				queries := map[string][]map[string]interface{}{} // Fun type
+				if err := json.Unmarshal(grest.(json.RawMessage), &queries); err != nil {
+					log.Fatal(
+						"Failed to parse x-grest at",
+						path, " ", method, " : ", err,
+						"  ", string(grest.(json.RawMessage)),
+					)
+				}
+				templates := []*template.Template{}
+				for i, query := range queries["queries"] {
+					sql, ok := query["sql"]
+					if !ok {
+						log.Fatal("Failed to get 'sql' from GREST Swagger extension at", path, method)
+					}
+					templates = append(templates, template.Must(template.New(
+						fmt.Sprintf("%s %s %d", path, method, i),
+					).Parse(sql.(string))))
+				}
+
+				// Copy out params
+				params := []openapi3.Parameter{}
+				for i, param := range op.Parameters {
+					params = append(params, *param.Value)
+					if template, ok := params[i].Extensions["x-grest-template-allowed"]; ok {
+						if _, ok := template.(json.RawMessage); ok {
+							params[i].Extensions["x-grest-template-allowed"] = strings.ToLower(
+								string(template.(json.RawMessage))) == "true"
+						}
+
+						// Final check
+						if _, ok := params[i].Extensions["x-grest-template-allowed"].(bool); !ok {
+							log.Fatal(
+								"Extension x-grest-template-allowed must be boolean on",
+								path, " ", method, " ", params[i].Name,
+								" not ", reflect.TypeOf(template),
+							)
+						}
+					}
+				}
+
+				bodyAllowed := false
+				if op.RequestBody != nil {
+					if template, ok := op.RequestBody.Value.Extensions["x-grest-template-allowed"]; ok {
+						if _, ok := template.(json.RawMessage); ok {
+							op.RequestBody.Value.Extensions["x-grest-template-allowed"] = strings.ToLower(
+								string(template.(json.RawMessage))) == "true"
+						}
+
+						// Final check
+						if allowed, ok := op.RequestBody.Value.Extensions["x-grest-template-allowed"].(bool); !ok {
+							log.Fatal(
+								"RequestBody Extension x-grest-template-allowed must be boolean on",
+								path, " ", method, " not ", reflect.TypeOf(template),
+							)
+						} else {
+							bodyAllowed = allowed
+						}
+					}
+				}
+
+				e.Add(method, convertPath(path), func(c echo.Context) error {
+					templateParams, queryParams := map[string]interface{}{}, map[string]interface{}{}
+					for _, param := range params {
+						switch param.In {
+						case "path":
+							queryParams[param.Name] = c.Param(param.Name)
+							if allowed, ok := param.Extensions["x-grest-template-allowed"]; ok && allowed.(bool) {
+								templateParams[param.Name] = c.Param(param.Name)
+							}
+						case "query":
+							queryParams[param.Name] = c.QueryParam(param.Name)
+							if allowed, ok := param.Extensions["x-grest-template-allowed"]; ok && allowed.(bool) {
+								templateParams[param.Name] = c.QueryParam(param.Name)
+							}
+						}
+					}
+					var body map[string]interface{}
+					c.Bind(&body)
+
+					// Can't do nested in SQL
+					for key, val := range body {
+						queryParams[key] = val
+					}
+					if bodyAllowed {
+						templateParams["body"] = body
+					}
+
+					results, err := api.runQuery(
+						c.Get("username").(string),
+						templates, templateParams, queryParams,
+					)
+
+					if err == nil {
+						c.JSON(http.StatusOK, results)
+					}
+					return err
+				})
+			}
+		}
+	}
 
 	if os.Getenv("GREST_AUTHENTICATION") == "basic" {
 		api.addBasicAuth(e)

@@ -17,7 +17,7 @@ var NoTest TestResponse = func(t *testing.T, rec *httptest.ResponseRecorder) {}
 func TestGets(t *testing.T) {
 	start := time.Now()
 	api := NewApi()
-	server := api.GetServer()
+	server := api.GetServer("../openapi.yml")
 	if time.Since(start) > 2*time.Second {
 		t.Error("Slow start up time", time.Since(start))
 	}
@@ -227,5 +227,23 @@ func TestGets(t *testing.T) {
 				test.recTest(t, rec)
 			},
 		)
+	}
+}
+
+func Test_convertPath(t *testing.T) {
+	tests := []struct {
+		input  string
+		output string
+	}{
+		{"{apple}", ":apple"},
+		{"/{apple}/{pear}", "/:apple/:pear"},
+		{"/base/{apple}", "/base/:apple"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := convertPath(tt.input); got != tt.output {
+				t.Errorf("convertPath() = %v, want %v", got, tt.output)
+			}
+		})
 	}
 }
