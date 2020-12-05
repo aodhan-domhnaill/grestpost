@@ -136,6 +136,15 @@ func TestGets(t *testing.T) {
 			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
 			http.StatusOK, "postgres", "test", NoTest,
 		},
+		// Add permissions
+		{
+			httptest.NewRequest(http.MethodPut, "/_roles/test/testtable/select", nil),
+			http.StatusOK, "postgres", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
+			http.StatusOK, "test", "test", NoTest,
+		},
 		// Test checking for roles
 		{
 			httptest.NewRequest(http.MethodGet, "/_roles/", nil),
@@ -143,9 +152,10 @@ func TestGets(t *testing.T) {
 			func(t *testing.T, rec *httptest.ResponseRecorder) {
 				target := []map[string]string{}
 				json.NewDecoder(rec.Body).Decode(&target)
-				fmt.Println(target)
-				if len(target) != 0 {
-					t.Error("Non admin shouldn't get back role info")
+				for _, role := range target {
+					if role["subj"] != "test" {
+						t.Error("Role subject should always be 'test' not", role["subj"])
+					}
 				}
 			},
 		},
@@ -155,7 +165,6 @@ func TestGets(t *testing.T) {
 			func(t *testing.T, rec *httptest.ResponseRecorder) {
 				target := []map[string]string{}
 				json.NewDecoder(rec.Body).Decode(&target)
-				fmt.Println(target)
 				if len(target) == 0 {
 					t.Error("Should have recieved more roles back")
 				}
@@ -167,7 +176,6 @@ func TestGets(t *testing.T) {
 			func(t *testing.T, rec *httptest.ResponseRecorder) {
 				target := []map[string]string{}
 				json.NewDecoder(rec.Body).Decode(&target)
-				fmt.Println(target)
 				if len(target) == 0 {
 					t.Error("Should have recieved more roles back")
 				}
@@ -209,15 +217,14 @@ func TestGets(t *testing.T) {
 				server.ServeHTTP(rec, test.req)
 				if test.status != rec.Code {
 					t.Errorf(
-						"HTTP Code mismatch %d != %d : %s",
-						test.status, rec.Code, string(rec.Body.Bytes()),
+						"HTTP Code mismatch %d != %d",
+						test.status, rec.Code,
 					)
 				}
 				if time.Since(start) > 2*time.Second {
 					t.Error("Test ran for too long", time.Since(start))
 				}
 				test.recTest(t, rec)
-				fmt.Println(string(rec.Body.Bytes()))
 			},
 		)
 	}

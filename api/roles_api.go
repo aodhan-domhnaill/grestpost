@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"text/template"
 
 	"github.com/labstack/echo"
@@ -15,7 +16,7 @@ func (api *API) roleAPI(e *echo.Group) {
 			[]*template.Template{
 				template.Must(template.New("create table").Parse(
 					"SELECT DISTINCT grantee AS subj, table_name AS obj, privilege_type AS act " +
-						"FROM information_schema.role_table_grants ",
+						"FROM information_schema.role_table_grants",
 				)),
 			},
 			map[string]interface{}{},
@@ -98,6 +99,28 @@ func (api *API) roleAPI(e *echo.Group) {
 			map[string]interface{}{
 				"username": c.Param("username"),
 			},
+		)
+
+		if err == nil {
+			c.JSON(http.StatusOK, results)
+		}
+		return err
+	})
+
+	e.PUT("/:username/:table/:action", func(c echo.Context) error {
+		results, err := api.runQuery(
+			c.Get("username").(string), // Authed user, not param
+			[]*template.Template{
+				template.Must(template.New("create role").Parse(
+					"GRANT {{.action}} ON TABLE {{.table}} TO {{.username}}",
+				)),
+			},
+			map[string]interface{}{
+				"username": c.Param("username"),
+				"table":    c.Param("table"),
+				"action":   strings.ToUpper(c.Param("action")),
+			},
+			map[string]interface{}{},
 		)
 
 		if err == nil {
