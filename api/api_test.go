@@ -16,8 +16,8 @@ var NoTest TestResponse = func(t *testing.T, rec *httptest.ResponseRecorder) {}
 
 func TestGets(t *testing.T) {
 	start := time.Now()
-	api := NewApi()
-	server := api.GetServer("../openapi.yml")
+	api := NewApi("jdbc:sqlite3://fake")
+	server := api.GetServer("./sqlite3.openapi.yml")
 	if time.Since(start) > 2*time.Second {
 		t.Error("Slow start up time", time.Since(start))
 	}
