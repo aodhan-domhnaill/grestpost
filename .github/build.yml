@@ -1,0 +1,14 @@
+name: ci
+
+on:
+  push:
+    branches: master
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v2
