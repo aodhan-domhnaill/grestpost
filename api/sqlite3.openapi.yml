@@ -5,18 +5,7 @@ info:
 servers:
   - url: https://api.server.test/v1
 
-security:
-  - basicauth: []
-
 components:
-  securitySchemes:
-    basicauth:
-      type: http
-      scheme: basic
-      x-grest-password-query: |
-        SELECT username FROM users
-        WHERE username = :username
-        AND password = crypt(:password, password);
   parameters:
     database:
       in: path

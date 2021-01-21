@@ -38,7 +38,8 @@ func supportedTypes() []string {
 
 // API - API object
 type API struct {
-	sql databaseInterface
+	sql             databaseInterface
+	securityQueries map[string]string
 }
 
 // NewAPI - Create new Postgres API
@@ -216,15 +217,15 @@ func (api *API) GetServer(swaggerpath string) *echo.Echo {
 			case "http":
 				switch securityScheme.Scheme {
 				case "basic":
-					var query string // Fun type
-					if err := json.Unmarshal(securityScheme.Extensions["x-grest-password-query"].(json.RawMessage), &query); err != nil {
+					if err := json.Unmarshal(
+						securityScheme.Extensions["x-grest-password-query"].(json.RawMessage), &api.securityQueries); err != nil {
 						log.Fatal(
 							"Failed to parse x-grest-password-query at",
 							provider, " : ", err,
 							"  ", string(securityScheme.Extensions["x-grest-password-query"].(json.RawMessage)),
 						)
 					}
-					api.addBasicAuth(e, query)
+					api.addBasicAuth(e)
 				default:
 					log.Fatal("Unsupported http security scheme", securityScheme.Scheme)
 				}

@@ -8,10 +8,10 @@ import (
 	"github.com/labstack/echo/middleware"
 )
 
-func (api *API) addBasicAuth(e *echo.Echo, passwordQuery string) {
+func (api *API) addBasicAuth(e *echo.Echo) {
 	e.Use(middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
 		rows, err := api.sql.NamedQuery(
-			passwordQuery,
+			api.securityQueries["check"],
 			map[string]interface{}{
 				"password": password,
 				"username": username,
@@ -38,13 +38,19 @@ func (api *API) addBasicAuth(e *echo.Echo, passwordQuery string) {
 }
 
 func (api *API) setUser(txn txInterface, username string) error {
-	_, err := txn.NamedExec(
-		fmt.Sprintf("SET ROLE %s ; ", username), map[string]interface{}{},
-	)
-	return err
+	if _, ok := api.securityQueries["set"]; ok {
+		_, err := txn.NamedExec(
+			fmt.Sprintf(api.securityQueries["set"], username), map[string]interface{}{},
+		)
+		return err
+	}
+	return nil
 }
 
 func (api *API) resetUser(txn txInterface) error {
-	_, err := txn.NamedExec("RESET ROLE", map[string]interface{}{})
-	return err
+	if _, ok := api.securityQueries["reset"]; ok {
+		_, err := txn.NamedExec(api.securityQueries["reset"], map[string]interface{}{})
+		return err
+	}
+	return nil
 }

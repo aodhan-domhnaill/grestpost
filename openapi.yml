@@ -13,10 +13,13 @@ components:
     basicauth:
       type: http
       scheme: basic
-      x-grest-password-query: |
-        SELECT username FROM users
-        WHERE username = :username
-        AND password = crypt(:password, password);
+      x-grest-password-query:
+        check: |
+          SELECT username FROM users
+          WHERE username = :username
+          AND password = crypt(:password, password);
+        set: "SET ROLE %s ;"
+        reset: "RESET ROLE"
   parameters:
     database:
       in: path
