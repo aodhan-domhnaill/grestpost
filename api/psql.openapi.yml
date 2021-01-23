@@ -1,0 +1,206 @@
+openapi: '3.0.2'
+info:
+  title: GREST
+  version: '1.0'
+servers:
+  - url: https://api.server.test/v1
+
+security:
+  - basicauth: []
+
+components:
+  securitySchemes:
+    basicauth:
+      type: http
+      scheme: basic
+      x-grest-password-query:
+        init: CREATE TABLE IF NOT EXISTS users (username text, password text)
+        # DO NOT USE THIS!!!! THIS IS FOR TESTING SO PASSWORDS ARE PLAINTEXT!!!
+        check: |
+          SELECT username FROM users
+          WHERE username = :username
+          AND password = :password;
+        set: "SELECT '%s' ; "
+        reset: "SELECT 1 ; "
+  parameters:
+    database:
+      in: path
+      name: database
+      x-grest-template-allowed: true
+      schema:
+        type: string
+      required: true
+    schema:
+      in: path
+      name: schema
+      x-grest-template-allowed: true
+      schema:
+        type: string
+      required: true
+    table:
+      in: path
+      name: table
+      x-grest-template-allowed: true
+      schema:
+        type: string
+      required: true
+    username:
+      in: path
+      name: username
+      x-grest-template-allowed: true
+      schema:
+        type: string
+      required: true
+    action:
+      in: path
+      name: action
+      x-grest-template-allowed: true
+      schema:
+        type: string
+      required: true
+paths:
+  /_data/:
+    get:
+      responses:
+        '200':
+          description: OK
+      x-grest:
+        queries:
+          - sql: |
+              SELECT DISTINCT datname
+              FROM pg_database WHERE datistemplate = false;
+  /_data/{database}:
+    get:
+      responses:
+        '200':
+          description: OK
+      parameters:
+        - $ref: '#/components/parameters/database'
+      x-grest:
+        queries:
+          - sql: |
+              SELECT DISTINCT table_schema
+              FROM information_schema.tables
+  /_data/{database}/{schema}:
+    get:
+      responses:
+        '200':
+          description: OK
+      parameters:
+        - $ref: '#/components/parameters/database'
+        - $ref: '#/components/parameters/schema'
+      x-grest:
+        queries:
+          - sql: |
+              SELECT DISTINCT table_name
+              FROM information_schema.tables
+              WHERE table_schema = :schema
+  /_data/{database}/{schema}/{table}:
+    get:
+      responses:
+        '200':
+          description: OK
+      parameters:
+        - $ref: '#/components/parameters/database'
+        - $ref: '#/components/parameters/schema'
+        - $ref: '#/components/parameters/table'
+      x-grest:
+        queries:
+          - sql: |
+              SELECT * FROM {{.database}}.{{.schema}}.{{.table}}
+    post:
+      responses:
+        '200':
+          description: OK
+      parameters:
+        - $ref: '#/components/parameters/database'
+        - $ref: '#/components/parameters/schema'
+        - $ref: '#/components/parameters/table'
+      requestBody:
+        required: true
+        x-grest-template-allowed: true
+        content:
+          application/json:
+            schema:
+              type: object
+      x-grest:
+        queries:
+          - sql: |
+              INSERT INTO {{.database}}.{{.schema}}.{{.table}} (
+                {{$first := true}}{{range $col, $val := .body}}
+                {{if $first}}{{$first = false}}{{else}},{{end}}
+                {{$col}}{{end}}
+                ) VALUES (
+                {{$first = true}}{{range $col, $val := .body}}
+                {{if $first}}{{$first = false}}{{else}},{{end}}
+                :{{$col}}{{end}}
+              )
+    put:
+      responses:
+        '200':
+          description: OK
+      parameters:
+        - $ref: '#/components/parameters/database'
+        - $ref: '#/components/parameters/schema'
+        - $ref: '#/components/parameters/table'
+      requestBody:
+        required: true
+        x-grest-template-allowed: true
+        content:
+          application/json:
+            schema:
+              type: object
+      x-grest:
+        queries:
+          - sql: |
+              CREATE TABLE {{.database}}.{{.schema}}.{{.table}} (
+                {{$first := true}}{{range $col, $type := .body}}
+                {{if $first}}{{$first = false}}{{else}},{{end}}
+                {{$col}} {{$type}}{{end}}
+              )
+    delete:
+      responses:
+        '200':
+          description: OK
+      parameters:
+        - $ref: '#/components/parameters/database'
+        - $ref: '#/components/parameters/schema'
+        - $ref: '#/components/parameters/table'
+      x-grest:
+        queries:
+          - sql: |
+              DROP TABLE IF EXISTS {{.database}}.{{.schema}}.{{.table}}
+          - sql: |
+              DROP VIEW IF EXISTS {{.database}}.{{.schema}}.{{.table}}
+
+  /_roles/:
+    get:
+      responses:
+        '200':
+          description: OK
+      x-grest:
+        queries:
+          - sql: |
+              SELECT DISTINCT
+                grantee AS subj,
+                table_name AS obj,
+                privilege_type AS act
+              FROM information_schema.role_table_grants
+    put:
+      responses:
+        '200':
+          description: OK
+      requestBody:
+        required: true
+        x-grest-template-allowed: true
+        content:
+          application/json:
+            schema:
+              type: object
+      x-grest:
+        queries:
+          - sql: |
+              CREATE ROLE {{.body.username}}
+          - sql: |
+              INSERT INTO users VALUES
+              (:username, :password);

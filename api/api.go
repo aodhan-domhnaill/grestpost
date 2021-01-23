@@ -14,6 +14,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo"
+	"github.com/lib/pq"
 
 	sqlite3 "github.com/mattn/go-sqlite3"
 
@@ -276,6 +277,17 @@ func errorMapping(err error) error {
 			code = http.StatusInternalServerError
 		}
 		return echo.NewHTTPError(code, err)
+	} else if pgerr, ok := err.(*pq.Error); ok {
+		code, ok := map[pq.ErrorCode]int{
+			pgerrcode.UndefinedTable:        http.StatusNotFound,
+			pgerrcode.InsufficientPrivilege: http.StatusForbidden,
+			pgerrcode.UndefinedObject:       http.StatusNotFound,
+		}[pgerr.Code]
+		if !ok {
+			log.Println("Couldn't find error code", pgerr.Code)
+			code = http.StatusInternalServerError
+		}
+		return echo.NewHTTPError(code, err)
 	} else if sqlite3err, ok := err.(sqlite3.Error); ok {
 		code, ok := map[sqlite3.ErrNo]int{
 			sqlite3.ErrError: http.StatusNotFound,
@@ -287,6 +299,7 @@ func errorMapping(err error) error {
 		return echo.NewHTTPError(code, err)
 	}
 
+	log.Println("Error type not handled", reflect.TypeOf(err))
 	return echo.NewHTTPError(http.StatusInternalServerError, err)
 }
 

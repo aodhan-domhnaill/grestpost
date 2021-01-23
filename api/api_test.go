@@ -1,12 +1,16 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cockroachdb/cockroach-go/v2/testserver"
+	"github.com/jmoiron/sqlx"
 )
 
 type TestResponse func(t *testing.T, rec *httptest.ResponseRecorder)
@@ -15,8 +19,20 @@ var NoTest TestResponse = func(t *testing.T, rec *httptest.ResponseRecorder) {}
 
 func TestGets(t *testing.T) {
 	start := time.Now()
-	api := NewApi("jdbc:sqlite3://fake")
-	server := api.GetServer("./sqlite3.openapi.yml")
+
+	db, close := testserver.NewDBForTest(t)
+	defer close()
+
+	db.Exec("CREATE EXTENSION pgcrypto")
+	db.Exec("CREATE ROLE test")
+	db.Exec("CREATE TABLE users (username text, password text)")
+	db.Exec("INSERT INTO users VALUES ('test', 'test')")
+	db.Exec("INSERT INTO users VALUES ('postgres', 'test')")
+
+	api := &API{sql: databaseBackend{sqlx.NewDb(
+		db, "postgres",
+	)}}
+	server := api.GetServer("./psql.openapi.yml")
 	if time.Since(start) > 2*time.Second {
 		t.Error("Slow start up time", time.Since(start))
 	}
@@ -35,12 +51,28 @@ func TestGets(t *testing.T) {
 			http.StatusOK, "test", "test", NoTest,
 		},
 		{
-			httptest.NewRequest(http.MethodDelete, "/_data/testtable", nil),
+			httptest.NewRequest(http.MethodGet, "/_data/postgres", nil),
+			http.StatusOK, "test", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public", nil),
+			http.StatusOK, "test", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public", nil),
+			http.StatusUnauthorized, "test", "wrongpassword", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public", nil),
+			http.StatusUnauthorized, "nonexistant", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_data/postgres/public/testtable", nil),
 			http.StatusOK, "test", "test", NoTest,
 		},
 		{
 			httptest.NewRequest(
-				http.MethodPut, "/_data/testtable",
+				http.MethodPut, "/_data/postgres/public/testtable",
 				strings.NewReader(
 					`{"col": "real"}`,
 				),
@@ -49,7 +81,7 @@ func TestGets(t *testing.T) {
 		},
 		{
 			httptest.NewRequest(
-				http.MethodPost, "/_data/testtable",
+				http.MethodPost, "/_data/postgres/public/testtable",
 				strings.NewReader(
 					`{"col": 1}`,
 				),
@@ -57,21 +89,30 @@ func TestGets(t *testing.T) {
 			http.StatusOK, "test", "test", NoTest,
 		},
 		{
-			httptest.NewRequest(http.MethodGet, "/_data/testtable", nil),
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
 			http.StatusOK, "test", "test", NoTest,
 		},
 		{
-			httptest.NewRequest(http.MethodDelete, "/_data/testtable", nil),
+			httptest.NewRequest(http.MethodDelete, "/_data/postgres/public/testtable", nil),
 			http.StatusOK, "test", "test", NoTest,
 		},
 		{
-			httptest.NewRequest(http.MethodGet, "/_data/testtable", nil),
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
 			http.StatusNotFound, "test", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(
+				http.MethodPut, "/_roles/",
+				strings.NewReader(
+					`{"username": "newuser", "password": "pass"}`,
+				),
+			),
+			http.StatusOK, "test", "test", NoTest,
 		},
 		// Create table as newuser
 		{
 			httptest.NewRequest(
-				http.MethodPut, "/_data/testtable",
+				http.MethodPut, "/_data/postgres/public/testtable",
 				strings.NewReader(
 					`{"col": "real"}`,
 				),
@@ -80,12 +121,37 @@ func TestGets(t *testing.T) {
 		},
 		{
 			httptest.NewRequest(
-				http.MethodPost, "/_data/testtable",
+				http.MethodPost, "/_data/postgres/public/testtable",
 				strings.NewReader(
 					`{"col": 1}`,
 				),
 			),
 			http.StatusOK, "newuser", "pass", NoTest,
+		},
+		// Test checking for roles
+		{
+			httptest.NewRequest(http.MethodGet, "/_roles/", nil),
+			http.StatusOK, "test", "test",
+			func(t *testing.T, rec *httptest.ResponseRecorder) {
+				target := []map[string]string{}
+				json.NewDecoder(rec.Body).Decode(&target)
+				for _, role := range target {
+					if role["subj"] != "test" && role["subj"] != "root" {
+						t.Error("Role subject should always be 'test' not", role["subj"])
+					}
+				}
+			},
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_roles/", nil),
+			http.StatusOK, "postgres", "test",
+			func(t *testing.T, rec *httptest.ResponseRecorder) {
+				target := []map[string]string{}
+				json.NewDecoder(rec.Body).Decode(&target)
+				if len(target) == 0 {
+					t.Error("Should have recieved more roles back")
+				}
+			},
 		},
 	}
 
