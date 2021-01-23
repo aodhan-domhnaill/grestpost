@@ -7,20 +7,6 @@ servers:
 
 components:
   parameters:
-    database:
-      in: path
-      name: database
-      x-grest-template-allowed: true
-      schema:
-        type: string
-      required: true
-    schema:
-      in: path
-      name: schema
-      x-grest-template-allowed: true
-      schema:
-        type: string
-      required: true
     table:
       in: path
       name: table
@@ -51,54 +37,26 @@ paths:
       x-grest:
         queries:
           - sql: |
-              SELECT DISTINCT datname
-              FROM pg_database WHERE datistemplate = false;
-  /_data/{database}:
+              SELECT name
+              FROM sqlite_master 
+              WHERE type ='table'
+              AND name NOT LIKE 'sqlite_%';
+  /_data/{table}:
     get:
       responses:
         '200':
           description: OK
       parameters:
-        - $ref: '#/components/parameters/database'
-      x-grest:
-        queries:
-          - sql: |
-              SELECT DISTINCT table_schema
-              FROM information_schema.tables
-  /_data/{database}/{schema}:
-    get:
-      responses:
-        '200':
-          description: OK
-      parameters:
-        - $ref: '#/components/parameters/database'
-        - $ref: '#/components/parameters/schema'
-      x-grest:
-        queries:
-          - sql: |
-              SELECT DISTINCT table_name
-              FROM information_schema.tables
-              WHERE table_schema = :schema
-  /_data/{database}/{schema}/{table}:
-    get:
-      responses:
-        '200':
-          description: OK
-      parameters:
-        - $ref: '#/components/parameters/database'
-        - $ref: '#/components/parameters/schema'
         - $ref: '#/components/parameters/table'
       x-grest:
         queries:
           - sql: |
-              SELECT * FROM {{.database}}.{{.schema}}.{{.table}}
+              SELECT * FROM {{.table}}
     post:
       responses:
         '200':
           description: OK
       parameters:
-        - $ref: '#/components/parameters/database'
-        - $ref: '#/components/parameters/schema'
         - $ref: '#/components/parameters/table'
       requestBody:
         required: true
@@ -110,7 +68,7 @@ paths:
       x-grest:
         queries:
           - sql: |
-              INSERT INTO {{.database}}.{{.schema}}.{{.table}} (
+              INSERT INTO {{.table}} (
                 {{$first := true}}{{range $col, $val := .body}}
                 {{if $first}}{{$first = false}}{{else}},{{end}}
                 {{$col}}{{end}}
@@ -124,8 +82,6 @@ paths:
         '200':
           description: OK
       parameters:
-        - $ref: '#/components/parameters/database'
-        - $ref: '#/components/parameters/schema'
         - $ref: '#/components/parameters/table'
       requestBody:
         required: true
@@ -137,7 +93,7 @@ paths:
       x-grest:
         queries:
           - sql: |
-              CREATE TABLE {{.database}}.{{.schema}}.{{.table}} (
+              CREATE TABLE {{.table}} (
                 {{$first := true}}{{range $col, $type := .body}}
                 {{if $first}}{{$first = false}}{{else}},{{end}}
                 {{$col}} {{$type}}{{end}}
@@ -147,86 +103,10 @@ paths:
         '200':
           description: OK
       parameters:
-        - $ref: '#/components/parameters/database'
-        - $ref: '#/components/parameters/schema'
         - $ref: '#/components/parameters/table'
       x-grest:
         queries:
           - sql: |
-              DROP TABLE IF EXISTS {{.database}}.{{.schema}}.{{.table}}
+              DROP TABLE IF EXISTS {{.table}}
           - sql: |
-              DROP VIEW IF EXISTS {{.database}}.{{.schema}}.{{.table}}
-
-  /_roles/:
-    get:
-      responses:
-        '200':
-          description: OK
-      x-grest:
-        queries:
-          - sql: |
-              SELECT DISTINCT
-                grantee AS subj,
-                table_name AS obj,
-                privilege_type AS act
-              FROM information_schema.role_table_grants
-    put:
-      responses:
-        '200':
-          description: OK
-      requestBody:
-        required: true
-        x-grest-template-allowed: true
-        content:
-          application/json:
-            schema:
-              type: object
-      x-grest:
-        queries:
-          - sql: |
-              CREATE ROLE {{.body.username}}
-          - sql: |
-              INSERT INTO users VALUES
-              (:username, crypt(:password, gen_salt('bf', 8)));
-
-  /_roles/{username}:
-    get:
-      responses:
-        '200':
-          description: OK
-      parameters:
-        - $ref: '#/components/parameters/username'
-      x-grest:
-        queries:
-          - sql: |
-              SELECT DISTINCT grantee AS subj, table_name AS obj, privilege_type AS act
-              FROM information_schema.role_table_grants
-              WHERE grantee = :username
-    delete:
-      responses:
-        '200':
-          description: OK
-      parameters:
-        - $ref: '#/components/parameters/username'
-      x-grest:
-        queries:
-          - sql: |
-              DROP OWNED BY {{.username}}
-          - sql: |
-              DROP ROLE {{.username}}
-          - sql: |
-              DELETE FROM users WHERE username = :username
-
-  /_roles/{username}/{table}/{action}:
-    put:
-      responses:
-        '200':
-          description: OK
-      parameters:
-        - $ref: '#/components/parameters/username'
-        - $ref: '#/components/parameters/table'
-        - $ref: '#/components/parameters/action'
-      x-grest:
-        queries:
-          - sql: |
-              GRANT {{.action}} ON TABLE {{.table}} TO {{.username}}
+              DROP VIEW IF EXISTS {{.table}}

@@ -15,7 +15,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo"
 
-	_ "github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 
 	// Need to add postgres driver
 	"github.com/getkin/kin-openapi/openapi3"
@@ -273,6 +273,15 @@ func errorMapping(err error) error {
 		}[pgerr.Code]
 		if !ok {
 			log.Println("Couldn't find error code", pgerr.Code)
+			code = http.StatusInternalServerError
+		}
+		return echo.NewHTTPError(code, err)
+	} else if sqlite3err, ok := err.(sqlite3.Error); ok {
+		code, ok := map[sqlite3.ErrNo]int{
+			sqlite3.ErrError: http.StatusNotFound,
+		}[sqlite3err.Code]
+		if !ok {
+			log.Println("Couldn't find error code", sqlite3err.Code)
 			code = http.StatusInternalServerError
 		}
 		return echo.NewHTTPError(code, err)

@@ -14,6 +14,7 @@ components:
       type: http
       scheme: basic
       x-grest-password-query:
+        init: CREATE TABLE IF NOT EXISTS users (username text, password text)
         check: |
           SELECT username FROM users
           WHERE username = :username
