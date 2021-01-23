@@ -3,31 +3,15 @@ package api
 import (
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 )
 
 func (api *API) addBasicAuth(e *echo.Echo) {
-	// Avoid injection
-	if !sqlSanitize.Match([]byte(os.Getenv("GREST_USER_TABLE"))) {
-		log.Fatal(fmt.Sprintf(
-			"Must specify a table name in env var GREST_USER_TABLE matching /%s/",
-			sanitizeRegex,
-		))
-		return
-	}
-	passwordQuery := fmt.Sprintf(
-		"SELECT username FROM %s "+
-			"WHERE username = :username "+
-			"AND password = crypt(:password, password);",
-		os.Getenv("GREST_USER_TABLE"),
-	)
-
 	e.Use(middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
 		rows, err := api.sql.NamedQuery(
-			passwordQuery,
+			api.securityQueries["check"],
 			map[string]interface{}{
 				"password": password,
 				"username": username,
@@ -51,4 +35,22 @@ func (api *API) addBasicAuth(e *echo.Echo) {
 		log.Println("No matching", username, password)
 		return false, nil
 	}))
+}
+
+func (api *API) setUser(txn txInterface, username string) error {
+	if _, ok := api.securityQueries["set"]; ok {
+		_, err := txn.NamedExec(
+			fmt.Sprintf(api.securityQueries["set"], username), map[string]interface{}{},
+		)
+		return err
+	}
+	return nil
+}
+
+func (api *API) resetUser(txn txInterface) error {
+	if _, ok := api.securityQueries["reset"]; ok {
+		_, err := txn.NamedExec(api.securityQueries["reset"], map[string]interface{}{})
+		return err
+	}
+	return nil
 }

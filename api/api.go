@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -15,6 +14,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo"
+	"github.com/lib/pq"
+
+	sqlite3 "github.com/mattn/go-sqlite3"
 
 	// Need to add postgres driver
 	"github.com/getkin/kin-openapi/openapi3"
@@ -37,32 +39,49 @@ func supportedTypes() []string {
 
 // API - API object
 type API struct {
-	sql databaseInterface
+	sql             databaseInterface
+	securityQueries map[string]string
 }
 
 // NewAPI - Create new Postgres API
-func NewApi() *API {
-	connConfig := pgx.ConnConfig{
-		Host:     "gresttestpostgres",
-		Database: "postgres",
-		User:     "postgres",
-		Password: "postgres",
-	}
-	connPool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
-		ConnConfig:     connConfig,
-		AfterConnect:   nil,
-		MaxConnections: 20,
-		AcquireTimeout: 30 * time.Second,
-	})
-	if err != nil {
-		log.Fatalln(err)
-	}
+func NewApi(jdbc string) *API {
+	match := regexp.MustCompile(
+		"jdbc:(?P<dbtype>.+)://(?P<host>.+?):?(?P<port>[0-9]*)/?(?P<database>.*)",
+	).FindStringSubmatch(jdbc)
 
-	db := sqlx.NewDb(stdlib.OpenDBFromPool(connPool), "pgx")
+	var db *sqlx.DB
+	switch match[1] {
+	case "postgres":
+		connConfig := pgx.ConnConfig{
+			Host:     match[2],
+			Database: match[4],
+			User:     "postgres",
+			Password: "postgres",
+		}
+		connPool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
+			ConnConfig:     connConfig,
+			AfterConnect:   nil,
+			MaxConnections: 20,
+			AcquireTimeout: 30 * time.Second,
+		})
+		if err != nil {
+			log.Fatalln(err)
+		}
 
-	_, err = db.Exec("CREATE ROLE anon")
-	if err != nil {
-		log.Println("Failed to create anon role:", err)
+		db = sqlx.NewDb(stdlib.OpenDBFromPool(connPool), "pgx")
+
+		_, err = db.Exec("CREATE ROLE anon")
+		if err != nil {
+			log.Println("Failed to create anon role:", err)
+		}
+	case "sqlite3":
+		var err error
+		db, err = sqlx.Open("sqlite3", "file:"+match[2]+"?mode=memory&cache=shared")
+		if err != nil {
+			log.Fatal(err)
+		}
+	default:
+		log.Fatal("Unsupported database", match[1])
 	}
 
 	return &API{sql: databaseBackend{db}}
@@ -170,8 +189,16 @@ func (api *API) GetServer(swaggerpath string) *echo.Echo {
 						templateParams["body"] = body
 					}
 
+					var username string
+					switch c.Get("username").(type) {
+					case string:
+						username = c.Get("username").(string)
+					default:
+						username = "anon"
+					}
+
 					results, err := api.runQuery(
-						c.Get("username").(string),
+						username,
 						templates, templateParams, queryParams,
 					)
 
@@ -184,8 +211,29 @@ func (api *API) GetServer(swaggerpath string) *echo.Echo {
 		}
 	}
 
-	if os.Getenv("GREST_AUTHENTICATION") == "basic" {
-		api.addBasicAuth(e)
+	for _, req := range swagger.Security {
+		for provider, _ := range req {
+			securityScheme := swagger.Components.SecuritySchemes[provider].Value
+			switch securityScheme.Type {
+			case "http":
+				switch securityScheme.Scheme {
+				case "basic":
+					if err := json.Unmarshal(
+						securityScheme.Extensions["x-grest-password-query"].(json.RawMessage), &api.securityQueries); err != nil {
+						log.Fatal(
+							"Failed to parse x-grest-password-query at",
+							provider, " : ", err,
+							"  ", string(securityScheme.Extensions["x-grest-password-query"].(json.RawMessage)),
+						)
+					}
+					api.addBasicAuth(e)
+				default:
+					log.Fatal("Unsupported http security scheme", securityScheme.Scheme)
+				}
+			default:
+				log.Fatal("Unsupported security type", securityScheme.Type)
+			}
+		}
 	}
 
 	return e
@@ -229,8 +277,29 @@ func errorMapping(err error) error {
 			code = http.StatusInternalServerError
 		}
 		return echo.NewHTTPError(code, err)
+	} else if pgerr, ok := err.(*pq.Error); ok {
+		code, ok := map[pq.ErrorCode]int{
+			pgerrcode.UndefinedTable:        http.StatusNotFound,
+			pgerrcode.InsufficientPrivilege: http.StatusForbidden,
+			pgerrcode.UndefinedObject:       http.StatusNotFound,
+		}[pgerr.Code]
+		if !ok {
+			log.Println("Couldn't find error code", pgerr.Code)
+			code = http.StatusInternalServerError
+		}
+		return echo.NewHTTPError(code, err)
+	} else if sqlite3err, ok := err.(sqlite3.Error); ok {
+		code, ok := map[sqlite3.ErrNo]int{
+			sqlite3.ErrError: http.StatusNotFound,
+		}[sqlite3err.Code]
+		if !ok {
+			log.Println("Couldn't find error code", sqlite3err.Code)
+			code = http.StatusInternalServerError
+		}
+		return echo.NewHTTPError(code, err)
 	}
 
+	log.Println("Error type not handled", reflect.TypeOf(err))
 	return echo.NewHTTPError(http.StatusInternalServerError, err)
 }
 
@@ -253,9 +322,7 @@ func (api *API) runQuery(
 		}
 	}
 
-	if _, err := txn.NamedExec(
-		fmt.Sprintf("SET ROLE %s ; ", username), map[string]interface{}{},
-	); err != nil {
+	if err := api.setUser(txn, username); err != nil {
 		log.Println("Failed to set role", err)
 		txn.Rollback()
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)
@@ -313,7 +380,7 @@ func (api *API) runQuery(
 	}
 	rows.Close()
 
-	if _, err := txn.NamedExec("RESET ROLE", map[string]interface{}{}); err != nil {
+	if err := api.resetUser(txn); err != nil {
 		log.Println("Failed to reset role", err)
 		txn.Rollback()
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)

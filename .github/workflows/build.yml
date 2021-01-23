@@ -1,0 +1,13 @@
+name: ci
+
+on: pull_request
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      -
+        name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v2

@@ -15,12 +15,13 @@ components:
       scheme: basic
       x-grest-password-query:
         init: CREATE TABLE IF NOT EXISTS users (username text, password text)
+        # DO NOT USE THIS!!!! THIS IS FOR TESTING SO PASSWORDS ARE PLAINTEXT!!!
         check: |
           SELECT username FROM users
           WHERE username = :username
-          AND password = crypt(:password, password);
-        set: "SET ROLE %s ;"
-        reset: "RESET ROLE"
+          AND password = :password;
+        set: "SELECT '%s' ; "
+        reset: "SELECT 1 ; "
   parameters:
     database:
       in: path
@@ -202,46 +203,4 @@ paths:
               CREATE ROLE {{.body.username}}
           - sql: |
               INSERT INTO users VALUES
-              (:username, crypt(:password, gen_salt('bf', 8)));
-
-  /_roles/{username}:
-    get:
-      responses:
-        '200':
-          description: OK
-      parameters:
-        - $ref: '#/components/parameters/username'
-      x-grest:
-        queries:
-          - sql: |
-              SELECT DISTINCT grantee AS subj, table_name AS obj, privilege_type AS act
-              FROM information_schema.role_table_grants
-              WHERE grantee = :username
-    delete:
-      responses:
-        '200':
-          description: OK
-      parameters:
-        - $ref: '#/components/parameters/username'
-      x-grest:
-        queries:
-          - sql: |
-              DROP OWNED BY {{.username}}
-          - sql: |
-              DROP ROLE {{.username}}
-          - sql: |
-              DELETE FROM users WHERE username = :username
-
-  /_roles/{username}/{table}/{action}:
-    put:
-      responses:
-        '200':
-          description: OK
-      parameters:
-        - $ref: '#/components/parameters/username'
-        - $ref: '#/components/parameters/table'
-        - $ref: '#/components/parameters/action'
-      x-grest:
-        queries:
-          - sql: |
-              GRANT {{.action}} ON TABLE {{.table}} TO {{.username}}
+              (:username, :password);
