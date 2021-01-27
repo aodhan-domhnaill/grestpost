@@ -15,3 +15,4 @@ jobs:
         with:
           commit_message: Go mod tidy
       - run: gofmt -l .
+      - run: go test -cover ./...
