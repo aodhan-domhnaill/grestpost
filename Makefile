@@ -1,6 +1,4 @@
-DOCKER ?= podman
-
-test:
+unittest:
 	go mod tidy
 	gofmt -l .
 	go test -cover ./...

@@ -7,7 +7,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
-      -
-        name: Build and push
-        id: docker_build
-        uses: docker/build-push-action@v2
+      - uses: actions/setup-go@v2
+        with:
+          go-version: '^1.13.1'
+      - run: go mod tidy
+      - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Go mod tidy
+      - run: gofmt -l .
