@@ -5,6 +5,8 @@ on: pull_request
 jobs:
   main:
     runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
     steps:
       - uses: actions/checkout@master
       - uses: actions/setup-go@v2
