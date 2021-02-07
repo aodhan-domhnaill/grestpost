@@ -16,8 +16,7 @@ jobs:
       - uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: Go mod tidy
-      - uses: securego/gosec@master
-        with:
-          args: ./...
+      - run: go get github.com/securego/gosec/v2/cmd/gosec
+      - run: gosec ./...
       - run: gofmt -l .
       - run: go test -cover ./...
