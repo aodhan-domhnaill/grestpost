@@ -34,7 +34,7 @@ func TestGets(t *testing.T) {
 	)}}
 	server := api.GetServer("./cockroachdb.openapi.yml")
 	if time.Since(start) > 2*time.Second {
-		t.Error("Slow start up time", time.Since(start))
+		t.Error("Slow start up time for cockroachdb", time.Since(start))
 	}
 
 	type GetTest struct {
