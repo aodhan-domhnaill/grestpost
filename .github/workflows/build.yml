@@ -5,9 +5,33 @@ on: pull_request
 jobs:
   main:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      GO111MODULE: on
     steps:
       - uses: actions/checkout@master
-      -
-        name: Build and push
-        id: docker_build
-        uses: docker/build-push-action@v2
+      - uses: actions/setup-go@v2
+        with:
+          go-version: '^1.13.1'
+      - run: go mod tidy
+      - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Go mod tidy
+      - run: go get github.com/securego/gosec/v2/cmd/gosec
+      - run: gosec ./...
+      - run: gofmt -l .
+      - run: go test -cover ./...
+        env:
+          POSTGRES_HOST: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_PORT: 5432
