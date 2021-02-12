@@ -32,7 +32,7 @@ func TestGets(t *testing.T) {
 	api := &API{sql: databaseBackend{sqlx.NewDb(
 		db, "postgres",
 	)}}
-	server := api.GetServer("./psql.openapi.yml")
+	server := api.GetServer("./cockroachdb.openapi.yml")
 	if time.Since(start) > 2*time.Second {
 		t.Error("Slow start up time", time.Since(start))
 	}
