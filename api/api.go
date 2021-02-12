@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/labstack/echo"
+	"github.com/labstack/echo/v4"
 	"github.com/lib/pq"
 
 	sqlite3 "github.com/mattn/go-sqlite3"
@@ -178,8 +178,9 @@ func (api *API) GetServer(swaggerpath string) *echo.Echo {
 							}
 						}
 					}
-					var body map[string]interface{}
-					if err := c.Bind(&body); err != nil {
+					body := map[string]interface{}{}
+					if err := (&echo.DefaultBinder{}).BindBody(c, &body); err != nil {
+						log.Fatal(err)
 						return err
 					}
 
