@@ -179,7 +179,9 @@ func (api *API) GetServer(swaggerpath string) *echo.Echo {
 						}
 					}
 					var body map[string]interface{}
-					c.Bind(&body)
+					if err := c.Bind(&body); err != nil {
+						return err
+					}
 
 					// Can't do nested in SQL
 					for key, val := range body {
@@ -203,7 +205,7 @@ func (api *API) GetServer(swaggerpath string) *echo.Echo {
 					)
 
 					if err == nil {
-						c.JSON(http.StatusOK, results)
+						return c.JSON(http.StatusOK, results)
 					}
 					return err
 				})
@@ -324,7 +326,9 @@ func (api *API) runQuery(
 
 	if err := api.setUser(txn, username); err != nil {
 		log.Println("Failed to set role", err)
-		txn.Rollback()
+		if err := txn.Rollback(); err != nil {
+			log.Fatal(err)
+		}
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
 
@@ -358,7 +362,9 @@ func (api *API) runQuery(
 			}
 			if err != nil {
 				log.Println("Failed to run query", err)
-				txn.Rollback()
+				if err := txn.Rollback(); err != nil {
+					log.Fatal(err)
+				}
 				return nil, errorMapping(err)
 			}
 		}
@@ -369,7 +375,9 @@ func (api *API) runQuery(
 	for rows.Next() {
 		if err := rows.MapScan(row); err != nil {
 			log.Println("Failed to scan row", err)
-			rows.Close()
+			if err := rows.Close(); err != nil {
+				log.Fatal(err)
+			}
 			return nil, echo.NewHTTPError(http.StatusInternalServerError, err)
 		}
 		results = append(results, row)
@@ -378,14 +386,20 @@ func (api *API) runQuery(
 		log.Println("Failed to fetch rows", err)
 		return nil, errorMapping(err)
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		log.Fatal(err)
+	}
 
 	if err := api.resetUser(txn); err != nil {
 		log.Println("Failed to reset role", err)
-		txn.Rollback()
+		if err := txn.Rollback(); err != nil {
+			log.Fatal(err)
+		}
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)
 	}
-	txn.Commit()
+	if err := txn.Commit(); err != nil {
+		log.Fatal(err)
+	}
 
 	return results, nil
 }
