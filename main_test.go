@@ -18,7 +18,7 @@ var NoTest TestResponse = func(t *testing.T, rec *httptest.ResponseRecorder) {}
 
 func TestGets(t *testing.T) {
 	start := time.Now()
-	api := api.NewApi("jdbc:postgres://postgres:5432/db")
+	api := api.NewApi("jdbc:postgres://localhost:5432/db")
 	server := api.GetServer("./openapi.yml")
 	if time.Since(start) > 2*time.Second {
 		t.Error("Slow start up time", time.Since(start))
