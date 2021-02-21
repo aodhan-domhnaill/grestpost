@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+psql -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     CREATE EXTENSION pgcrypto;
     CREATE ROLE test;
     CREATE TABLE users (username text, password text);

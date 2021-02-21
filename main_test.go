@@ -1,4 +1,4 @@
-package api
+package main
 
 import (
 	"encoding/json"
@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/cockroach-go/v2/testserver"
-	"github.com/jmoiron/sqlx"
+	"github.com/aidan-plenert-macdonald/grest/api"
 )
 
 type TestResponse func(t *testing.T, rec *httptest.ResponseRecorder)
@@ -19,22 +18,10 @@ var NoTest TestResponse = func(t *testing.T, rec *httptest.ResponseRecorder) {}
 
 func TestGets(t *testing.T) {
 	start := time.Now()
-
-	db, close := testserver.NewDBForTest(t)
-	defer close()
-
-	db.Exec("CREATE EXTENSION pgcrypto")
-	db.Exec("CREATE ROLE test")
-	db.Exec("CREATE TABLE users (username text, password text)")
-	db.Exec("INSERT INTO users VALUES ('test', 'test')")
-	db.Exec("INSERT INTO users VALUES ('postgres', 'test')")
-
-	api := &API{sql: databaseBackend{sqlx.NewDb(
-		db, "postgres",
-	)}}
-	server := api.GetServer("./cockroachdb.openapi.yml")
+	api := api.NewApi("jdbc:postgres://localhost:5432/postgres")
+	server := api.GetServer("./openapi.yml")
 	if time.Since(start) > 2*time.Second {
-		t.Error("Slow start up time for cockroachdb", time.Since(start))
+		t.Error("Slow start up time", time.Since(start))
 	}
 
 	type GetTest struct {
@@ -100,6 +87,7 @@ func TestGets(t *testing.T) {
 			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
 			http.StatusNotFound, "test", "test", NoTest,
 		},
+		// Can only create role as admin
 		{
 			httptest.NewRequest(
 				http.MethodPut, "/_roles/",
@@ -107,7 +95,16 @@ func TestGets(t *testing.T) {
 					`{"username": "newuser", "password": "pass"}`,
 				),
 			),
-			http.StatusOK, "test", "test", NoTest,
+			http.StatusForbidden, "test", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(
+				http.MethodPut, "/_roles/",
+				strings.NewReader(
+					`{"username": "newuser", "password": "pass"}`,
+				),
+			),
+			http.StatusOK, "postgres", "test", NoTest,
 		},
 		// Create table as newuser
 		{
@@ -128,6 +125,28 @@ func TestGets(t *testing.T) {
 			),
 			http.StatusOK, "newuser", "pass", NoTest,
 		},
+		// Test that permissions for the new table are working
+		{
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
+			http.StatusForbidden, "test", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
+			http.StatusOK, "newuser", "pass", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
+			http.StatusOK, "postgres", "test", NoTest,
+		},
+		// Add permissions
+		{
+			httptest.NewRequest(http.MethodPut, "/_roles/test/testtable/select", nil),
+			http.StatusOK, "postgres", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_data/postgres/public/testtable", nil),
+			http.StatusOK, "test", "test", NoTest,
+		},
 		// Test checking for roles
 		{
 			httptest.NewRequest(http.MethodGet, "/_roles/", nil),
@@ -136,7 +155,7 @@ func TestGets(t *testing.T) {
 				target := []map[string]string{}
 				json.NewDecoder(rec.Body).Decode(&target)
 				for _, role := range target {
-					if role["subj"] != "test" && role["subj"] != "root" {
+					if role["subj"] != "test" {
 						t.Error("Role subject should always be 'test' not", role["subj"])
 					}
 				}
@@ -152,6 +171,39 @@ func TestGets(t *testing.T) {
 					t.Error("Should have recieved more roles back")
 				}
 			},
+		},
+		{
+			httptest.NewRequest(http.MethodGet, "/_roles/newuser", nil),
+			http.StatusOK, "postgres", "test",
+			func(t *testing.T, rec *httptest.ResponseRecorder) {
+				target := []map[string]string{}
+				json.NewDecoder(rec.Body).Decode(&target)
+				if len(target) == 0 {
+					t.Error("Should have recieved more roles back")
+				}
+				for _, role := range target {
+					if role["subj"] != "newuser" {
+						t.Error("Role subject should always be 'newuser' not", role["subj"])
+					}
+				}
+			},
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_roles/newuser", nil),
+			http.StatusForbidden, "test", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_roles/newuser", nil),
+			http.StatusOK, "postgres", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_roles/newuser", nil),
+			http.StatusNotFound, "postgres", "test", NoTest,
+		},
+		{
+			httptest.NewRequest(http.MethodDelete, "/_roles/newuser", nil),
+			// Dangerous!! Unauthed user could discover roles by querying until they get a Forbidden
+			http.StatusNotFound, "test", "test", NoTest,
 		},
 	}
 
@@ -177,23 +229,5 @@ func TestGets(t *testing.T) {
 				test.recTest(t, rec)
 			},
 		)
-	}
-}
-
-func Test_convertPath(t *testing.T) {
-	tests := []struct {
-		input  string
-		output string
-	}{
-		{"{apple}", ":apple"},
-		{"/{apple}/{pear}", "/:apple/:pear"},
-		{"/base/{apple}", "/base/:apple"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			if got := convertPath(tt.input); got != tt.output {
-				t.Errorf("convertPath() = %v, want %v", got, tt.output)
-			}
-		})
 	}
 }

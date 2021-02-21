@@ -46,7 +46,7 @@ type API struct {
 // NewAPI - Create new Postgres API
 func NewApi(jdbc string) *API {
 	match := regexp.MustCompile(
-		"jdbc:(?P<dbtype>.+)://(?P<host>.+?):?(?P<port>[0-9]*)/?(?P<database>.*)",
+		"jdbc:(?P<dbtype>.+)://(?P<host>[^:]+):?(?P<port>[0-9]*)/?(?P<database>.*)",
 	).FindStringSubmatch(jdbc)
 
 	var db *sqlx.DB

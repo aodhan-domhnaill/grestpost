@@ -19,4 +19,46 @@ jobs:
       - run: go get github.com/securego/gosec/v2/cmd/gosec
       - run: gosec ./...
       - run: gofmt -l .
-      - run: go test -cover ./...
+      - run: go test -cover ./api/...
+
+  instance:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - "5432:5432"
+    env:
+      GO111MODULE: on
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions/setup-go@v2
+        with:
+          go-version: '^1.13.1'
+      - run: go mod tidy
+      - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Go mod tidy
+      - run: bash .github/workflows/init-test-db.sh
+        env:
+          POSTGRES_HOST: localhost
+          PGPASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_PORT: 5432
+      - run: go test -cover ./main_test.go
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_PORT: 5432
