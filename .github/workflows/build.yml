@@ -51,7 +51,7 @@ jobs:
       - run: bash .github/workflows/init-test-db.sh
         env:
           POSTGRES_HOST: localhost
-          POSTGRES_PASSWORD: postgres
+          PGPASSWORD: postgres
           POSTGRES_USER: postgres
           POSTGRES_DB: db
           POSTGRES_PORT: 5432
