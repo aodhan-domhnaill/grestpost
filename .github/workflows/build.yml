@@ -35,7 +35,6 @@ jobs:
     env:
       GO111MODULE: on
     steps:
-      - run: docker logs "${{ job.services.postgres.id }}"
       - uses: actions/checkout@master
       - uses: actions/setup-go@v2
         with:
@@ -44,9 +43,11 @@ jobs:
       - uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: Go mod tidy
-      - run: go get github.com/securego/gosec/v2/cmd/gosec
-      - run: gosec ./...
-      - run: gofmt -l .
+      - run: bash .github/workflows/init-test-db.sh
+        env:
+          POSTGRES_HOST: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_PORT: 5432
       - run: go test -cover ./main_test.go
         env:
           POSTGRES_HOST: postgres
