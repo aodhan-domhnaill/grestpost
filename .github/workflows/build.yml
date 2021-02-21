@@ -45,11 +45,15 @@ jobs:
           commit_message: Go mod tidy
       - run: bash .github/workflows/init-test-db.sh
         env:
-          POSTGRES_HOST: postgres
+          POSTGRES_HOST: localhost
           POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: db
           POSTGRES_PORT: 5432
       - run: go test -cover ./main_test.go
         env:
-          POSTGRES_HOST: postgres
+          POSTGRES_HOST: localhost
           POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: db
           POSTGRES_PORT: 5432
