@@ -53,12 +53,12 @@ jobs:
           POSTGRES_HOST: localhost
           PGPASSWORD: postgres
           POSTGRES_USER: postgres
-          POSTGRES_DB: postgress
+          POSTGRES_DB: postgres
           POSTGRES_PORT: 5432
       - run: go test -cover ./main_test.go
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
-          POSTGRES_DB: postgress
+          POSTGRES_DB: postgres
           POSTGRES_PORT: 5432
