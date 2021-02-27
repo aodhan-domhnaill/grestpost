@@ -44,10 +44,6 @@ jobs:
       - uses: actions/setup-go@v2
         with:
           go-version: '^1.13.1'
-      - run: go mod tidy
-      - uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: Go mod tidy
       - run: bash .github/workflows/init-test-db.sh
         env:
           POSTGRES_HOST: localhost
@@ -62,3 +58,10 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PORT: 5432
+      - run: go build .
+      - run: |
+          wget -O sqlmap.tar.gz https://github.com/sqlmapproject/sqlmap/tarball/master
+          tar -zxf sqlmap.tar.gz
+          ./grest &
+          sleep 1s
+          python3 sqlmapproject-*/sqlmap.py -u http://localhost:8080/database*/schema*/table*
