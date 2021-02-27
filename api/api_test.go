@@ -18,8 +18,6 @@ type TestResponse func(t *testing.T, rec *httptest.ResponseRecorder)
 var NoTest TestResponse = func(t *testing.T, rec *httptest.ResponseRecorder) {}
 
 func TestGets(t *testing.T) {
-	start := time.Now()
-
 	db, close := testserver.NewDBForTest(t)
 	defer close()
 
@@ -28,6 +26,8 @@ func TestGets(t *testing.T) {
 	db.Exec("CREATE TABLE users (username text, password text)")
 	db.Exec("INSERT INTO users VALUES ('test', 'test')")
 	db.Exec("INSERT INTO users VALUES ('postgres', 'test')")
+
+	start := time.Now()
 
 	api := &API{sql: databaseBackend{sqlx.NewDb(
 		db, "postgres",
