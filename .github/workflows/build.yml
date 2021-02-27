@@ -64,4 +64,6 @@ jobs:
           tar -zxf sqlmap.tar.gz
           ./grest &
           sleep 1s
-          python3 sqlmapproject-*/sqlmap.py -u http://localhost:8080/database*/schema*/table*
+          python3 sqlmapproject-*/sqlmap.py \
+            -u http://localhost:8080/database*/schema*/table*
+          echo $?
