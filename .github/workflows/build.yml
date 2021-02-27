@@ -65,7 +65,9 @@ jobs:
           ./grest &
           sleep 1s
           python3 sqlmapproject-*/sqlmap.py \
-            -u http://localhost:8080/database*/schema*/table* \
+            --batch \
+            --url http://localhost:8080/database*/schema*/table* \
             --auth-type=Basic --auth-cred="test:test" \
+            --level=3 --risk=3 \
             --ignore-code=401,404
           echo $?
