@@ -65,5 +65,6 @@ jobs:
           ./grest &
           sleep 1s
           python3 sqlmapproject-*/sqlmap.py \
-            -u http://localhost:8080/database*/schema*/table*
+            -u http://localhost:8080/database*/schema*/table* \
+            --auth-type=Basic --auth-cred="test:test"
           echo $?
