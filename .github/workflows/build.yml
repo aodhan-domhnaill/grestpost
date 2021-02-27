@@ -66,5 +66,6 @@ jobs:
           sleep 1s
           python3 sqlmapproject-*/sqlmap.py \
             -u http://localhost:8080/database*/schema*/table* \
-            --auth-type=Basic --auth-cred="test:test"
+            --auth-type=Basic --auth-cred="test:test" \
+            --ignore-code=404
           echo $?
