@@ -18,6 +18,10 @@ jobs:
           commit_message: Go mod tidy
       - run: go get github.com/securego/gosec/v2/cmd/gosec
       - run: gosec ./...
+      - id: semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/golang
       - run: gofmt -l .
       - run: go test -cover ./api/...
 
