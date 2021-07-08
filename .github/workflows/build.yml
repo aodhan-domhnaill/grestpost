@@ -21,6 +21,17 @@ jobs:
       - run: gofmt -l .
       - run: go test -cover ./api/...
 
+  semgrep:
+    runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
+    steps:
+      - uses: actions/checkout@master
+      - id: semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/golang
+
   instance:
     runs-on: ubuntu-latest
     services:
